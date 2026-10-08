@@ -6,7 +6,10 @@ score, a grade, fix suggestions and SARIF output.
 
 ```bash
 pip install .
+sentinel init .                    # write a starter sentinel.toml
 sentinel scan .                    # console report, exits 1 on HIGH+
+sentinel install-hook .            # gate every commit on staged findings
+sentinel scan . --changed-since origin/main   # PR/diff mode: changed files only
 sentinel scan . -f sarif -o out.sarif
 sentinel scan . --fail-on never    # report only, always exit 0
 ```
@@ -21,7 +24,7 @@ sentinel scan . --fail-on never    # report only, always exit 0
 | Git hygiene (tracked `.env`, credentialed remotes, >50 MB blobs) | Not covered | SEC050–SEC054 |
 | Git **history** secret scan | Only on public repos (push protection) | SEC055 — `git log -p` scan, capped output |
 | Works fully offline / locally | No | Yes — no network needed except optional CVE tools |
-| `--staged` pre-commit gate | No | Yes |
+| `--staged` pre-commit gate | No | Yes (`sentinel install-hook` one-liner) |
 | Baseline / suppressions / expiry | No | Yes (`--baseline`, `sentinel.toml`) |
 | Score + letter grade | No | 0–100, grades A–F, CRITICAL caps the grade |
 | SARIF upload | Yes | Yes (SARIF 2.1.0 + `security-severity`) |
@@ -43,7 +46,10 @@ coverage; `npm` on PATH for npm audit coverage.
 
 ```
 sentinel scan [path] [options]
-sentinel rules                 # list the full rule catalog
+sentinel init [path]               # write starter sentinel.toml (--force to overwrite)
+sentinel install-hook [path]       # install the pre-commit gate (--force for foreign hooks)
+sentinel uninstall-hook [path]     # remove the hook sentinel installed
+sentinel rules                     # list the full rule catalog
 ```
 
 | Option | Meaning |
@@ -52,6 +58,7 @@ sentinel rules                 # list the full rule catalog
 | `-o, --output` | write report to file (or directory for `all`) |
 | `--fail-on` | `critical` \| `high` (default) \| `medium` \| `low` \| `never` |
 | `--staged` | scan only git-staged files (pre-commit mode) |
+| `--changed-since REF` | scan only files changed since git `ref` (merge-base/PR diff) + uncommitted/untracked changes |
 | `--exclude GLOB` | extra exclude pattern (repeatable) |
 | `--config FILE` | explicit `sentinel.toml` / `.sentinel.json` |
 | `--baseline FILE` / `--update-baseline` | ignore known findings / record current ones |
@@ -101,7 +108,7 @@ credential.
 
 ```yaml
 # .github/workflows/security.yml
-on: [push]
+on: [push, pull_request]
 jobs:
   sentinel:
     runs-on: ubuntu-latest
@@ -114,20 +121,29 @@ jobs:
           fail-on: high
 ```
 
-Or as a plain step: `pip install . && sentinel scan . --fail-on high -f sarif -o sentinel.sarif`.
+PR mode (scan only what the PR touches, fast + zero unrelated noise):
+
+```yaml
+      - uses: priyanshuprajapati987/sentinel-scan@main
+        with:
+          changed-since: ${{ github.event.pull_request.base.sha }}
+```
+
+Or as a plain step: `pip install . && sentinel scan . --changed-since origin/main --fail-on high -f sarif -o sentinel.sarif`.
 
 ## Pre-commit
 
 ```bash
-git config core.hooksPath .githooks   # or add to your own hook:
-sentinel scan . --staged --fail-on high -q
+sentinel install-hook .            # writes .git/hooks/pre-commit (refuses foreign hooks)
 ```
+
+Manual equivalent: `sentinel scan . --staged --fail-on high -q`.
 
 ## Development
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 155 tests
+python -m pytest      # 178 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 

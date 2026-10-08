@@ -20,6 +20,34 @@ DEFAULT_EXCLUDES = [
     "poetry.lock", "Cargo.lock", "*.snap",
 ]
 
+# Written by `sentinel init` — commented so users only uncomment what they need.
+STARTER_TOML = """\
+# sentinel.toml — Sentinel configuration (created by `sentinel init`).
+# Precedence: --config flag > sentinel.toml > .sentinel.json > built-in defaults.
+
+# Minimum severity that makes `sentinel scan` exit 1 (the CI gate).
+fail_on = "high"
+
+# Extra exclude globs, merged on top of the built-in defaults.
+# exclude = ["tests/fixtures/", "*.generated.*"]
+
+# Git-history secret scan (SEC055) over the last N commits.
+history = true
+history_commits = 100
+
+# Committed values that must never be flagged (documented test credentials,
+# docs samples). Matched as substrings of the extracted value.
+# allow_secrets = ["fake-test-token-for-docs"]
+
+# Documented suppressions. Never suppress without a reason — an expired
+# `expires` date (ISO format) makes the suppression active again.
+# [[suppressions]]
+# rule_id = "SEC014"
+# path = "tests/fixtures/dummy_password.py"
+# reason = "intentional fixture, value is a placeholder"
+# expires = "2027-01-01"
+"""
+
 # Glob-ish directory/file patterns suppressed by default for line scanners
 DEFAULT_SCAN_LIMITS = {"max_file_bytes": 2_000_000}
 

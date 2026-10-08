@@ -26,6 +26,10 @@ inputs:
     description: "Extra exclude glob (repeatable, space-separated)"
     required: false
     default: ""
+  changed-since:
+    description: "PR/diff mode — git ref to diff against (e.g. base.sha); scans only changed files"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -45,6 +49,9 @@ runs:
         set -o pipefail
         EXTRA=()
         for pat in ${{ inputs.exclude }}; do EXTRA+=(--exclude "$pat"); done
+        if [ -n "${{ inputs.changed-since }}" ]; then
+          EXTRA+=(--changed-since "${{ inputs.changed-since }}")
+        fi
         sentinel scan "${{ inputs.path }}" \
           --fail-on "${{ inputs.fail-on }}" \
           --format "${{ inputs.format }}" \
