@@ -1,0 +1,41 @@
+# Self-scan configuration for the sentinel-scan repository itself.
+fail_on = "high"
+history_commits = 100
+
+# tests/ are full of intentional vulnerable fixture literals (real-looking
+# JWTs, db URLs, eval calls) — excluding them keeps the self-scan gate honest
+# instead of suppressed-by-exception.
+exclude = ["tests/**"]
+
+# The rule modules quote their own detection patterns — a regex naturally
+# matches its own source. Documented, scoped suppressions beat a blanket
+# file exclude so the rest of the source tree is still fully scanned.
+[[suppressions]]
+rule_id = "SEC020"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own eval pattern"
+
+[[suppressions]]
+rule_id = "SEC021"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own exec/new Function pattern"
+
+[[suppressions]]
+rule_id = "SEC022"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own shell=True pattern"
+
+[[suppressions]]
+rule_id = "SEC025"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own yaml.load pattern"
+
+[[suppressions]]
+rule_id = "SEC027"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own verify=False pattern"
+
+[[suppressions]]
+rule_id = "SEC013"
+path = "sentinel/rules/gitcheck.py"
+reason = "remote-credential evidence format string matches its own URL pattern"

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Reports (generated)
+*.sarif
+report.json
+report.md
+report.html
+selfscan.json
+sentinel-reports/
+
+# OS
+.DS_Store
+Thumbs.db

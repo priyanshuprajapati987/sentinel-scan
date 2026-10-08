@@ -1,0 +1,53 @@
+# NOTE: workflow_dispatch ONLY on purpose — auto-triggered CI would consume
+# Actions minutes and (while GitHub billing is broken) spam failure emails.
+# Flip to `on: [push, pull_request]` once billing is fixed at
+# https://github.com/settings/billing
+name: ci
+
+on:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - run: pip install pytest ruff
+      - run: python -m pytest -q --timeout=120 || python -m pytest -q
+
+  self-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Self scan (gate: high)
+        run: sentinel scan . --fail-on high -f json -o sentinel-selfscan.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selfscan
+          path: sentinel-selfscan.json

@@ -1,0 +1,61 @@
+name: "Sentinel Scan"
+description: "Full-sweep security scan — secrets, code vulnerabilities, dependency audits and git hygiene with score + SARIF."
+author: "Priyanshu Prajapati"
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  path:
+    description: "Repository path to scan"
+    required: false
+    default: "."
+  fail-on:
+    description: "Minimum severity that fails the job (critical|high|medium|low|never)"
+    required: false
+    default: "high"
+  format:
+    description: "Report format (console|json|md|html|sarif|all)"
+    required: false
+    default: "sarif"
+  output:
+    description: "Report output file (ignored for console)"
+    required: false
+    default: "sentinel-report.sarif"
+  exclude:
+    description: "Extra exclude glob (repeatable, space-separated)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install sentinel
+      shell: bash
+      run: python -m pip install "${GITHUB_ACTION_PATH}"
+
+    - name: Run scan
+      shell: bash
+      run: |
+        set -o pipefail
+        EXTRA=()
+        for pat in ${{ inputs.exclude }}; do EXTRA+=(--exclude "$pat"); done
+        sentinel scan "${{ inputs.path }}" \
+          --fail-on "${{ inputs.fail-on }}" \
+          --format "${{ inputs.format }}" \
+          --output "${{ inputs.output }}" \
+          --history-commits 1000 \
+          "${EXTRA[@]}"
+
+    - name: Upload SARIF
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sentinel-report
+        path: ${{ inputs.output }}
+        if-no-files-found: ignore
