@@ -93,6 +93,11 @@ class TestGenericAssignments:
     def test_low_entropy_password_ignored(self):
         assert "SEC014" not in _ids('password = "aaaaaaaaaaaa"')
 
+    def test_human_password_just_above_floor_fires(self):
+        # H = 3.19 bits — was rejected by the old 3.2 floor by 0.01
+        hits = scan_text("x.py", 'password = "hunter2secret99"')
+        assert "SEC014" in [h.rule_id for h in hits]
+
 
 class TestDedupeAndCoverage:
     def test_vendor_rule_wins_over_generic_on_same_line(self):

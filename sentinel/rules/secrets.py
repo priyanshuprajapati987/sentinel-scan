@@ -116,7 +116,7 @@ SECRET_RULES: list[SecretRule] = [
        r"auth_?token|client_?secret|private_?key)\s*[:=]\s*[\"']([^\s\"']{8,})[\"'])",
        Severity.HIGH, "CWE-798",
        "Move the value to an environment variable / secret manager.",
-       min_entropy=3.2, value_group=2),
+        min_entropy=3.0, value_group=2),
     _r("SEC015", "High-entropy string assignment",
        r"(?<![A-Za-z0-9_])((?:key|token|credential|salt|seed)\s*[:=]\s*[\"']([A-Za-z0-9+/=_\-]{32,})[\"'])",
        Severity.MEDIUM, "CWE-798",
