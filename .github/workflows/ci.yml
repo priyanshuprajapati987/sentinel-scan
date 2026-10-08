@@ -1,11 +1,9 @@
-# NOTE: workflow_dispatch ONLY on purpose — auto-triggered CI would consume
-# Actions minutes and (while GitHub billing is broken) spam failure emails.
-# Flip to `on: [push, pull_request]` once billing is fixed at
-# https://github.com/settings/billing
+# CI — explicit array trigger (billing fixed 2026-10-08; auto-triggers ON).
+# Every job keeps timeout-minutes. If billing breaks again, disable the
+# workflow from repo settings instead of letting runs fail (failure mails).
 name: ci
 
-on:
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   lint:
