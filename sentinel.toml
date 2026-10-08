@@ -7,6 +7,10 @@ history_commits = 100
 # instead of suppressed-by-exception.
 exclude = ["tests/**"]
 
+# Documented example values that must never be flagged anywhere (matched
+# against the RAW value before redaction — see CHANGELOG 0.1.1 fix).
+allow_secrets = ["hunter2secret99"]
+
 # The rule modules quote their own detection patterns — a regex naturally
 # matches its own source. Documented, scoped suppressions beat a blanket
 # file exclude so the rest of the source tree is still fully scanned.

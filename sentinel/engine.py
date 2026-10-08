@@ -211,7 +211,7 @@ def scan(
             continue
         rel = path.relative_to(root).as_posix()
         result.files_scanned += 1
-        hits = secrets.scan_text(rel, text)
+        hits = secrets.scan_text(rel, text, allow=allow)
         if path.suffix.lower() != ".lock":
             hits += code.scan_text(rel, text)
         if allow:
@@ -223,7 +223,7 @@ def scan(
         patterns = list(cfg.excludes) + list(extra_excludes or [])
         result.findings.extend(gitcheck.scan(
             root, history=do_history, max_commits=cfg.history_commits,
-            exclude=lambda rel: _is_excluded(rel, patterns)))
+            exclude=lambda rel: _is_excluded(rel, patterns), allow=allow))
     if run_deps:
         result.findings.extend(deps.scan(root, cves=cfg.deps_cves))
 

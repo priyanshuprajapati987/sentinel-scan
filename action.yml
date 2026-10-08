@@ -30,6 +30,10 @@ inputs:
     description: "PR/diff mode — git ref to diff against (e.g. base.sha); scans only changed files"
     required: false
     default: ""
+  upload-sarif:
+    description: "Upload the report to GitHub code scanning (requires format=sarif and Code Security enabled)"
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
@@ -66,3 +70,9 @@ runs:
         name: sentinel-report
         path: ${{ inputs.output }}
         if-no-files-found: ignore
+
+    - name: Upload to code scanning
+      if: inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.output }}

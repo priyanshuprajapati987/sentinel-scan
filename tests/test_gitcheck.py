@@ -134,3 +134,11 @@ class TestHistory:
         fresh.mkdir()
         _git(fresh, "init")
         assert gitcheck.scan_history(fresh) == []
+
+    def test_history_honors_allow_values(self, repo):
+        key = "AKIA" + "Z" * 16
+        (repo / "conf.py").write_text(f'ACCESS = "{key}"\n', encoding="utf-8")
+        _commit_all(repo, "add config")
+        assert any(f.rule_id == "SEC055" for f in gitcheck.scan_history(repo))
+        allowed = gitcheck.scan_history(repo, allow=[key.lower()])
+        assert not any(f.rule_id == "SEC055" for f in allowed)

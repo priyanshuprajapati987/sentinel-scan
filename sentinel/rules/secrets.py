@@ -59,7 +59,7 @@ def _r(rule_id: str, title: str, regex: str, severity: Severity, cwe: str, fix: 
 
 SECRET_RULES: list[SecretRule] = [
     _r("SEC001", "AWS access key ID",
-       r"\b(A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
+       r"\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16})\b",
        Severity.CRITICAL, "CWE-798",
        "Rotate the key in IAM and load it from the environment / a secret manager."),
     _r("SEC002", "Google API key",
@@ -156,8 +156,13 @@ def is_secret_candidate(path: str) -> bool:
     return ext in SECRET_EXTENSIONS
 
 
-def scan_text(path: str, text: str) -> list[Finding]:
-    """Run every secret rule over one file's text."""
+def scan_text(path: str, text: str, allow: list[str] | None = None) -> list[Finding]:
+    """Run every secret rule over one file's text.
+
+    ``allow`` — lowercase value substrings that must never be flagged.
+    Matched against the **raw** extracted value (redacted evidence would
+    silently defeat a user's allowlist for any value longer than ~8 chars).
+    """
     findings: list[Finding] = []
     for lineno, line in enumerate(text.splitlines(), 1):
         line_hits: list[Finding] = []
@@ -168,6 +173,8 @@ def scan_text(path: str, text: str) -> list[Finding]:
                 except IndexError:
                     continue
                 if not value:
+                    continue
+                if allow and any(a in value.lower() for a in allow):
                     continue
                 if _PLACEHOLDER_RE.search(value):
                     continue

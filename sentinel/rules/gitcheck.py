@@ -136,13 +136,14 @@ def scan_hygiene(root: Path) -> list[Finding]:
 
 
 def scan_history(root: Path, max_commits: int = _MAX_HISTORY_COMMITS,
-                 exclude=None) -> list[Finding]:
+                 exclude=None, allow: list[str] | None = None) -> list[Finding]:
     """Scan recent commit patches for secrets (SEC055).
 
     Output is capped at 8 MB so massive repos stay responsive; findings
     point at the commit that introduced the secret. ``exclude(rel_path)``
     applies the same path excludes as the working-tree scan — test fixtures
     and vendored code must not become history-only false positives.
+    ``allow`` matches raw extracted values (see ``secrets.scan_text``).
     """
     root = Path(root)
     cap = min(max_commits, _MAX_HISTORY_COMMITS)
@@ -182,6 +183,8 @@ def scan_history(root: Path, max_commits: int = _MAX_HISTORY_COMMITS,
                     continue
                 if not value:
                     continue
+                if allow and any(a in value.lower() for a in allow):
+                    continue
                 if rule.min_entropy and secrets_mod.shannon_entropy(value) < rule.min_entropy:
                     continue
                 if secrets_mod._PLACEHOLDER_RE.search(value):
@@ -208,10 +211,10 @@ def scan_history(root: Path, max_commits: int = _MAX_HISTORY_COMMITS,
 
 
 def scan(root: Path, history: bool = True, max_commits: int = _MAX_HISTORY_COMMITS,
-         exclude=None) -> list[Finding]:
+         exclude=None, allow: list[str] | None = None) -> list[Finding]:
     if not is_git_repo(Path(root)):
         return []
     findings = scan_hygiene(Path(root))
     if history:
-        findings.extend(scan_history(Path(root), max_commits, exclude=exclude))
+        findings.extend(scan_history(Path(root), max_commits, exclude=exclude, allow=allow))
     return findings

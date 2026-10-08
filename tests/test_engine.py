@@ -121,6 +121,27 @@ class TestAllowSecrets:
         filtered = scan(tmp_path, config=cfg, run_git=False, run_deps=False)
         assert not any(f.scanner == "secrets" for f in filtered.findings)
 
+    def test_allow_matches_raw_value_when_evidence_is_redacted(self, tmp_path):
+        """Regression: allow_secrets once matched only redacted evidence
+        (hunter2secret99 -> hunter…et99), so a real allowlist entry for any
+        value longer than ~8 chars silently did nothing."""
+        (tmp_path / "a.py").write_text('password = "hunter2secret99"\n', encoding="utf-8")
+        raw = scan(tmp_path, run_git=False, run_deps=False)
+        assert any(f.rule_id == "SEC014" for f in raw.findings)  # unfiltered
+
+        cfg = Config(allow_secrets=["hunter2secret99"])
+        filtered = scan(tmp_path, config=cfg, run_git=False, run_deps=False)
+        assert not any(f.rule_id == "SEC014" for f in filtered.findings)
+
+    def test_allow_does_not_suppress_other_secrets(self, tmp_path):
+        (tmp_path / "a.py").write_text(
+            'password = "hunter2secret99"\napi_key = "kR8mZq2vXw9TfLp0BnY3"\n',
+            encoding="utf-8")
+        cfg = Config(allow_secrets=["hunter2secret99"])
+        result = scan(tmp_path, config=cfg, run_git=False, run_deps=False)
+        ids = [f.rule_id for f in result.findings]
+        assert "SEC014" in ids  # the OTHER secret still fires
+
 
 class TestBaseline:
     def test_baseline_filters_known_findings(self, tmp_path):

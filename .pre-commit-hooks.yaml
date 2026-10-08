@@ -1,0 +1,19 @@
+# Consumed by the pre-commit framework (https://pre-commit.com).
+# Add to your .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/priyanshuprajapati987/sentinel-scan
+#     rev: v0.1.1
+#     hooks:
+#       - id: sentinel
+#
+# Runs the fast local gate: staged files + git hygiene only (no history
+# scan, no dependency audit — those belong in CI, see README).
+- id: sentinel
+  name: sentinel scan (staged)
+  description: >-
+    Full-sweep security scan of staged files — secrets, dangerous code,
+    git hygiene. Exits 1 when findings reach the fail_on threshold.
+  entry: sentinel scan --staged --no-history --no-deps -q
+  language: python
+  pass_filenames: false
+  stages: [pre-commit]

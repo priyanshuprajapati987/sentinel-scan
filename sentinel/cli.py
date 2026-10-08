@@ -26,7 +26,8 @@ _HOOK_BODY = f"""#!/bin/sh
 {HOOK_MARKER}
 # Refuse the commit when staged findings reach the configured severity
 # (`fail_on` in sentinel.toml, default: high). Requires `sentinel` on PATH.
-sentinel scan --staged -q
+# History + dependency audits are CI jobs — the local hook stays fast/offline.
+sentinel scan --staged --no-history --no-deps -q
 exit $?
 """
 

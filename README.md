@@ -1,5 +1,10 @@
 # Sentinel Scan
 
+[![Release](https://img.shields.io/github/v/release/priyanshuprajapati987/sentinel-scan)](https://github.com/priyanshuprajapati987/sentinel-scan/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-189%20passing-brightgreen)](CHANGELOG.md)
+
 **Full-sweep security scanner for source repositories** — secrets, code
 vulnerabilities, dependency audits and git hygiene in one command, with a
 score, a grade, fix suggestions and SARIF output.
@@ -133,17 +138,39 @@ Or as a plain step: `pip install . && sentinel scan . --changed-since origin/mai
 
 ## Pre-commit
 
+Managed hook (recommended — refuses to touch hooks sentinel did not install):
+
 ```bash
-sentinel install-hook .            # writes .git/hooks/pre-commit (refuses foreign hooks)
+sentinel install-hook .            # writes .git/hooks/pre-commit
+sentinel uninstall-hook .          # removes it again
 ```
 
-Manual equivalent: `sentinel scan . --staged --fail-on high -q`.
+[pre-commit](https://pre-commit.com) framework — add to `.pre-commit-config.yaml`:
+
+```yaml
+- repo: https://github.com/priyanshuprajapati987/sentinel-scan
+  rev: v0.1.1
+  hooks:
+    - id: sentinel
+```
+
+Both run the **fast local gate**: staged files + git hygiene only —
+`--no-history --no-deps` keeps every commit offline and instant; history and
+dependency audits belong in CI. Manual equivalent:
+
+```bash
+sentinel scan . --staged --no-history --no-deps --fail-on high -q
+```
+
+> **Windows note:** GUI git clients often have a slim `PATH` — if the hook
+> fails with `sentinel: not found`, use an absolute path to the `sentinel`
+> script inside `.git/hooks/pre-commit`.
 
 ## Development
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 178 tests
+python -m pytest      # 189 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 
