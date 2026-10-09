@@ -1,7 +1,6 @@
-# CI — explicit array trigger (billing fixed 2026-10-08; auto-triggers ON).
-# Public repo = unlimited free Actions minutes. Every job keeps
-# timeout-minutes. If billing ever breaks again, disable the workflow from
-# repo settings instead of letting runs fail (failure mails).
+# CI — push/PR/manual trigger. Public repo = free Actions minutes.
+# Keep timeout-minutes on every job. NOTE: always quote step names that
+# contain ':' (YAML mapping crash = 0-jobs instant fail).
 name: ci
 
 on: [push, pull_request, workflow_dispatch]
@@ -33,8 +32,8 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e .
-      - run: pip install pytest ruff
-      - run: python -m pytest -q --timeout=120 || python -m pytest -q
+      - run: pip install pytest ruff pytest-timeout
+      - run: python -m pytest -q --timeout=300
 
   self-scan:
     runs-on: ubuntu-latest
@@ -47,7 +46,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e .
-      - name: Self scan (gate: high)
+      - name: "Self scan (gate: high)"
         run: sentinel scan . --fail-on high -f json -o sentinel-selfscan.json
       - uses: actions/upload-artifact@v4
         if: always()
