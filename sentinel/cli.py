@@ -10,6 +10,7 @@ Exit codes
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from . import __version__, engine, report, score
 from .config import STARTER_TOML, load_config
 from .models import Severity
 from .rules import code as code_rules
+from .rules import custom as custom_rules_mod
 from .rules import secrets as secrets_rules
 
 HOOK_MARKER = "# sentinel pre-commit hook (managed by `sentinel install-hook`)"
@@ -41,6 +43,7 @@ _RULE_CATALOG_STATIC = [
     ("SEC060", "Unpinned dependency", Severity.LOW),
     ("SEC061", "Known vulnerable dependency (pip-audit)", Severity.HIGH),
     ("SEC062", "Known vulnerable dependency (npm audit)", Severity.HIGH),
+    ("SEC074", "Dockerfile without .dockerignore", Severity.LOW),
 ]
 
 
@@ -83,7 +86,13 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="write current findings to the baseline file and exit 0")
     scan_p.add_argument("-q", "--quiet", action="store_true", help="suppress console output")
 
-    sub.add_parser("rules", help="list the rule catalog")
+    sub.add_parser("rules", help="list the rule catalog (incl. custom rules from ./sentinel.toml)")
+
+    allow_p = sub.add_parser("allow", help="accept a finding: appends [[suppressions]] to sentinel.toml")
+    allow_p.add_argument("fingerprint", help="finding id shown in the scan output ([abc123...], min 6 chars)")
+    allow_p.add_argument("path", nargs="?", default=".", help="repository root (default: .)")
+    allow_p.add_argument("--reason", default="", help="why this finding is accepted (stored in sentinel.toml)")
+    allow_p.add_argument("--config", default=None, help="explicit config file to update")
 
     init_p = sub.add_parser("init", help="write a starter sentinel.toml")
     init_p.add_argument("path", nargs="?", default=".", help="repository root (default: .)")
@@ -105,14 +114,80 @@ def _catalog() -> list[tuple[str, str, Severity]]:
     catalog = [(r.rule_id, r.title, r.severity) for r in secrets_rules.SECRET_RULES]
     catalog += code_rules.all_rules()
     catalog += _RULE_CATALOG_STATIC
+    cfg = load_config(Path.cwd())
+    catalog += custom_rules_mod.all_rules(cfg.custom_rules)
     return sorted(catalog, key=lambda x: x[0])
 
 
 def _cmd_rules() -> int:
     print(f"{'RULE':<8} {'SEV':<9} TITLE")
-    for rid, title, sev in _catalog():
+    catalog = _catalog()
+    for rid, title, sev in catalog:
         print(f"{rid:<8} {sev.name:<9} {title}")
-    print(f"\n{len(_catalog())} rules")
+    print(f"\n{len(catalog)} rules")
+    return 0
+
+
+def _cmd_allow(args: argparse.Namespace) -> int:
+    root = Path(args.path).resolve()
+    if not root.exists():
+        print(f"error: path does not exist: {root}", file=sys.stderr)
+        return 2
+    prefix = args.fingerprint.lower().strip()
+    if len(prefix) < 6:
+        print("error: fingerprint must be at least 6 characters "
+              "(copy the [id] shown next to the finding)", file=sys.stderr)
+        return 2
+
+    cfg = load_config(root, args.config)
+    # Scan WITHOUT suppressions so an already-allowed finding is still
+    # visible and can be reported as a no-op instead of "not found".
+    from dataclasses import replace
+    result = engine.scan(root, config=replace(cfg, suppressions=[]))
+    matches = [f for f in result.findings if f.fingerprint().startswith(prefix)]
+    if not matches:
+        print(f"error: no finding matches fingerprint {prefix!r} — "
+              "re-run `sentinel scan` and copy the [id] from the output",
+              file=sys.stderr)
+        return 2
+    if len(matches) > 1:
+        print(f"error: fingerprint {prefix!r} is ambiguous ({len(matches)} findings):",
+              file=sys.stderr)
+        for f in matches:
+            print(f"  {f.fingerprint()}  {f.rule_id}  {f.path}:{f.line}", file=sys.stderr)
+        return 2
+
+    finding = matches[0]
+    for sup in cfg.suppressions:
+        if sup.rule_id in ("*", finding.rule_id) and (
+                not sup.path or sup.path in finding.path.replace("\\", "/")):
+            print(f"already allowed: {finding.rule_id} @ {finding.path} "
+                  f"(suppression rule_id={sup.rule_id!r} path={sup.path!r})")
+            return 0
+
+    reason = args.reason or f"accepted via sentinel allow ({finding.fingerprint()})"
+    block = (
+        "\n[[suppressions]]\n"
+        f"rule_id = {json.dumps(finding.rule_id)}\n"
+        f"path = {json.dumps(finding.path.replace(chr(92), '/'))}\n"
+        f"reason = {json.dumps(reason)}\n"
+    )
+    cfg_path = Path(args.config) if args.config else root / "sentinel.toml"
+    created = not cfg_path.exists()
+    if created:
+        cfg_path.write_text(
+            "# sentinel.toml — Sentinel configuration (created by `sentinel allow`).\n"
+            + block.lstrip("\n"),
+            encoding="utf-8", newline="\n",
+        )
+    else:
+        with cfg_path.open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(block)
+
+    loc = f"{finding.path}:{finding.line}" if finding.line else finding.path
+    print(f"{'created' if created else 'updated'} {cfg_path}")
+    print(f"allowed {finding.rule_id} @ {loc}  [{finding.fingerprint()}]")
+    print(f"reason: {reason}")
     return 0
 
 
@@ -277,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "rules":
             return _cmd_rules()
+        if args.command == "allow":
+            return _cmd_allow(args)
         if args.command == "scan":
             return _cmd_scan(args)
         if args.command == "init":

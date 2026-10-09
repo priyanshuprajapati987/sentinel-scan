@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentinel-scan"
-version = "0.1.1"
+version = "0.2.0"
 description = "Full-sweep security scanner — secrets, code vulnerabilities, dependencies and git hygiene in one command. Free, offline, private-repo friendly."
 readme = "README.md"
 license = { text = "MIT" }

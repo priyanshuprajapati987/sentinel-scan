@@ -87,7 +87,9 @@ def render_console(result, show_evidence: bool = True) -> str:
         for f in by_file[path]:
             loc = f":{f.line}" if f.line else ""
             sev = _c(f"{f.severity.name:<8}", _SEV_COLOR[f.severity])
-            lines.append(f"    {sev} {_c(f.rule_id, _DIM)} {f.title}{loc and ' @' + str(f.line) or ''}")
+            lines.append(f"    {sev} {_c(f.rule_id, _DIM)} {f.title}"
+                         f"{loc and ' @' + str(f.line) or ''}"
+                         f" {_c('[' + f.fingerprint() + ']', _DIM)}")
             if show_evidence and f.evidence:
                 lines.append(_c(f"            {f.evidence}", _DIM))
             if f.fix:

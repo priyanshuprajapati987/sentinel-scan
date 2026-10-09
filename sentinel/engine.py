@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .config import Config, Suppression, load_config
 from .models import Finding
-from .rules import code, deps, gitcheck, secrets
+from .rules import code, container, custom, deps, gitcheck, secrets
 
 # Extensions we run the line scanners on (secrets has its own wider set).
 _LINE_SCAN_EXTS = secrets.SECRET_EXTENSIONS | code.ALL
@@ -81,9 +81,11 @@ def discover(root: Path, cfg: Config, extra_excludes: list[str] | None = None,
         if _is_excluded(rel, patterns):
             skipped += 1
             continue
-        if path.suffix.lower() not in _LINE_SCAN_EXTS and path.name not in {
-            "Dockerfile", "Makefile", "Jenkinsfile",
-        } and not path.name.startswith(".env"):
+        lname = path.name.lower()
+        is_dockerfile = lname == "dockerfile" or lname.startswith("dockerfile.")
+        if path.suffix.lower() not in _LINE_SCAN_EXTS and not is_dockerfile \
+                and path.name not in {"Makefile", "Jenkinsfile"} \
+                and not path.name.startswith(".env"):
             continue
         try:
             if path.stat().st_size > cfg.max_file_bytes:
@@ -214,18 +216,29 @@ def scan(
         hits = secrets.scan_text(rel, text, allow=allow)
         if path.suffix.lower() != ".lock":
             hits += code.scan_text(rel, text)
+            if cfg.custom_rules:
+                hits += custom.scan_text(rel, text, cfg.custom_rules)
         if allow:
-            hits = [h for h in hits if not any(a in h.evidence.lower() or a in h.message.lower() for a in allow)]
+            # allow_secrets applies to secret evidence only — custom rules
+            # and SAST hits are managed via [[suppressions]] / `sentinel allow`.
+            hits = [
+                h for h in hits
+                if not (h.scanner == "secrets" and any(
+                    a in h.evidence.lower() or a in h.message.lower() for a in allow))
+            ]
         result.findings.extend(hits)
 
+    patterns = list(cfg.excludes) + list(extra_excludes or [])
     if run_git:
         do_history = cfg.history if history is None else history
-        patterns = list(cfg.excludes) + list(extra_excludes or [])
         result.findings.extend(gitcheck.scan(
             root, history=do_history, max_commits=cfg.history_commits,
             exclude=lambda rel: _is_excluded(rel, patterns), allow=allow))
     if run_deps:
         result.findings.extend(deps.scan(root, cves=cfg.deps_cves))
+    if only_files is None:  # repo-level checks make sense only on full scans
+        result.findings.extend(container.scan_repo(
+            root, exclude=lambda rel: _is_excluded(rel, patterns)))
 
     # dedupe
     seen: set[tuple] = set()

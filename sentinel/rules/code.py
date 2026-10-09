@@ -20,8 +20,10 @@ WEB = frozenset({".js", ".jsx", ".ts", ".tsx", ".html", ".vue"})
 SHELL = frozenset({".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"})
 YAML = frozenset({".yml", ".yaml"})
 CONFIG = frozenset({".env", ".ini", ".cfg", ".conf", ".properties", ".toml"})
+DOCKER = frozenset({".dockerfile"})  # Dockerfile / dockerfile.dev via _ext_of()
 ALL = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".sh", ".bash",
-                 ".yml", ".yaml", ".env", ".ini", ".cfg", ".conf", ".html", ".vue"})
+                 ".yml", ".yaml", ".env", ".ini", ".cfg", ".conf", ".html", ".vue",
+                 ".dockerfile"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +122,7 @@ CODE_RULES: list[CodeRule] = [
     _c("SEC034", "Remote script piped to shell",
        r"(?:curl|wget)[^\n|]{0,200}\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b", Severity.HIGH, "CWE-494",
        "Download first, inspect checksum, then execute — never pipe remote bytes to a shell.",
-       SHELL | frozenset({".md", ".yml", ".yaml"})),
+       SHELL | frozenset({".md", ".yml", ".yaml"}) | DOCKER),
     _c("SEC035", "XXE-prone XML parsing",
        r"(?:xml\.etree\.ElementTree|ET)\.(?:fromstring|parse)\s*\(|expat\.(?:ParserCreate|Parse)\s*\(",
        Severity.MEDIUM, "CWE-611",
@@ -142,6 +144,26 @@ CODE_RULES: list[CodeRule] = [
        Severity.MEDIUM, "CWE-732",
        "Grant the minimum required permission (e.g. 750/640).",
        SHELL | YAML,
+       confidence="medium"),
+    _c("SEC042", "Workflow token permissions: write-all",
+       r"permissions\s*:\s*write-all", Severity.MEDIUM, "CWE-250",
+       "Declare least-privilege permissions per job (e.g. contents: read).",
+       YAML),
+    _c("SEC071", "Dockerfile base image pinned to :latest",
+       r"^\s*FROM\s+\S+:latest\b", Severity.MEDIUM, "CWE-829",
+       "Pin an explicit immutable version (e.g. :3.19) or a digest.",
+       DOCKER),
+    _c("SEC072", "Secret baked into Dockerfile ENV/ARG",
+       r"^\s*(?:ENV|ARG)\s+\w*(?:KEY|TOKEN|SECRET|PASSW(?:OR)?D|PWD|CREDENTIALS?)\w*\s*=",
+       Severity.HIGH, "CWE-798",
+       "Pass secrets at run time (orchestrator secrets / docker run -e), "
+       "never bake them into the image.",
+       DOCKER,
+       confidence="medium"),
+    _c("SEC073", "Container escape vector (privileged / docker.sock mount)",
+       r"privileged\s*:\s*true|docker\.sock", Severity.HIGH, "CWE-250",
+       "Drop privileged mode; never mount the docker socket into a container.",
+       YAML | DOCKER,
        confidence="medium"),
 ]
 
@@ -192,7 +214,106 @@ def _ext_of(path: str) -> str:
     name = Path(path).name.lower()
     if name == ".env" or name.startswith(".env"):
         return ".env"
+    if name == "dockerfile" or name.startswith("dockerfile."):
+        return ".dockerfile"
     return Path(name).suffix
+
+
+# --- stateful scanners (need >1 line of context) ----------------------------
+# SEC041: `${{ github.event.* }}` / `${{ github.head_ref }}` interpolated into a
+# `run:` step is shell script injection (GitHub's own hardening guide). `if:`
+# and `env:` contexts are expression/data positions — not flagged.
+_UNTRUSTED_CTX = re.compile(r"\$\{\{\s*(?:github\.event\.[A-Za-z0-9_.]+|github\.head_ref)\b")
+_RUN_BLOCK_RE = re.compile(r"^\s*run\s*:\s*[|>][-+]?\s*$")
+_RUN_INLINE_RE = re.compile(r"\brun\s*:")
+
+
+def _scan_actions(path: str, text: str) -> list[Finding]:
+    """SEC041 — untrusted context inside a ``run:`` step (inline or block)."""
+    findings: list[Finding] = []
+    in_run_block = False
+    run_indent = -1
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip())
+        if in_run_block:
+            if stripped and indent <= run_indent:
+                in_run_block = False  # block ended — fall through to normal handling
+            elif _UNTRUSTED_CTX.search(line):
+                findings.append(_action_finding(path, lineno, line))
+                continue
+        if _RUN_BLOCK_RE.match(line):
+            in_run_block = True
+            run_indent = indent
+            continue
+        if _RUN_INLINE_RE.search(line) and _UNTRUSTED_CTX.search(line):
+            findings.append(_action_finding(path, lineno, line))
+    return findings
+
+
+def _action_finding(path: str, lineno: int, line: str) -> Finding:
+    return Finding(
+        rule_id="SEC041",
+        title="Script injection via untrusted context in run:",
+        severity=Severity.HIGH,
+        message="Untrusted GitHub context interpolated into a shell run step — "
+                "a malicious PR/issue title becomes arbitrary code.",
+        path=path,
+        line=lineno,
+        evidence=line.strip()[:160],
+        fix="Pass the value via an intermediate env var and quote it in the shell "
+            "($VAR), or sanitize before use — see GitHub script-injection hardening.",
+        cwe="CWE-94",
+        confidence="high",
+        scanner="code",
+    )
+
+
+# SEC070: untagged FROM — needs stage tracking so `FROM builder` (a prior
+# `FROM x AS builder`) is not flagged while `FROM alpine` (implicit latest) is.
+_FROM_RE = re.compile(
+    r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?\s*$", re.IGNORECASE)
+
+
+def _image_has_tag(image: str) -> bool:
+    """True when the image ref pins a tag or digest (port colons don't count)."""
+    if "@" in image:
+        return True
+    return ":" in image.rsplit("/", 1)[-1]
+
+
+def _scan_dockerfile(path: str, text: str) -> list[Finding]:
+    """SEC070 — FROM without a tag/digest, skipping named stages and ARG refs."""
+    findings: list[Finding] = []
+    stages: set[str] = set()
+    for lineno, line in enumerate(text.splitlines(), 1):
+        m = _FROM_RE.match(line)
+        if not m:
+            continue
+        image, stage = m.group(1), m.group(2)
+        if stage:
+            stages.add(stage.lower())
+        if "$" in image:  # ARG-templated tag — cannot evaluate statically
+            continue
+        if image.lower() in stages:
+            continue  # re-entering a previously built stage, not a registry pull
+        if _image_has_tag(image):
+            continue
+        findings.append(Finding(
+            rule_id="SEC070",
+            title="Dockerfile base image without a pinned tag",
+            severity=Severity.MEDIUM,
+            message=f"FROM {image} resolves to a moving target (implicit :latest) — "
+                    "builds are not reproducible.",
+            path=path,
+            line=lineno,
+            evidence=line.strip()[:160],
+            fix="Pin an explicit immutable version (e.g. :3.19) or a digest.",
+            cwe="CWE-829",
+            confidence="high",
+            scanner="code",
+        ))
+    return findings
 
 
 def scan_text(path: str, text: str) -> list[Finding]:
@@ -244,6 +365,11 @@ def scan_text(path: str, text: str) -> list[Finding]:
                     scanner="code",
                 )
             )
+
+    if ext in YAML:
+        findings.extend(_scan_actions(path, text))
+    if ext in DOCKER:
+        findings.extend(_scan_dockerfile(path, text))
     return findings
 
 
@@ -251,4 +377,8 @@ def all_rules() -> list[tuple[str, str, Severity]]:
     """Rule catalog for ``sentinel rules``: (id, title, severity)."""
     catalog = [(r.rule_id, r.title, r.severity) for r in CODE_RULES]
     catalog += [(r.rule_id, r.title, r.severity) for r in FILE_RULES]
+    catalog += [
+        ("SEC041", "Script injection via untrusted context in run:", Severity.HIGH),
+        ("SEC070", "Dockerfile base image without a pinned tag", Severity.MEDIUM),
+    ]
     return catalog

@@ -8,9 +8,12 @@ neither exists, TOML config is skipped with a note (JSON still works).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from .models import Severity
 
 DEFAULT_EXCLUDES = [
     ".git/", "node_modules/", "vendor/", ".venv/", "venv/", "__pycache__/",
@@ -46,6 +49,16 @@ history_commits = 100
 # path = "tests/fixtures/dummy_password.py"
 # reason = "intentional fixture, value is a placeholder"
 # expires = "2027-01-01"
+
+# Custom rules — your own regex rules, scoped to file extensions.
+# An invalid pattern is reported as a config note and skipped (scan continues).
+# [[custom_rules]]
+# id = "CORP001"
+# title = "Internal API token"
+# severity = "high"
+# pattern = "corp_[A-Za-z0-9]{40}"
+# extensions = [".py", ".env"]
+# fix = "Rotate the token and move it to a secret store."
 """
 
 # Glob-ish directory/file patterns suppressed by default for line scanners
@@ -60,11 +73,28 @@ class Suppression:
     expires: str = ""  # ISO date — empty = permanent
 
 
+@dataclass(frozen=True)
+class CustomRule:
+    """A user-defined line rule from ``[[custom_rules]]`` in sentinel.toml."""
+
+    id: str
+    title: str
+    severity: Severity
+    pattern: str  # original source, kept for diagnostics
+    regex: re.Pattern
+    message: str = ""
+    fix: str = ""
+    extensions: tuple[str, ...] | None = None  # None = every scanned text file
+    cwe: str = ""
+    confidence: str = "high"
+
+
 @dataclass
 class Config:
     excludes: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDES))
     allow_secrets: list[str] = field(default_factory=list)  # value substrings never flagged
     suppressions: list[Suppression] = field(default_factory=list)
+    custom_rules: list[CustomRule] = field(default_factory=list)
     fail_on: str = "high"
     history: bool = True
     history_commits: int = 500
@@ -118,6 +148,54 @@ def _apply(cfg: Config, data: dict[str, Any]) -> None:
                 reason=str(entry.get("reason", "")),
                 expires=str(entry.get("expires", "")),
             ))
+    for entry in data.get("custom_rules", []) or []:
+        _parse_custom_rule(cfg, entry)
+
+
+def _parse_custom_rule(cfg: Config, entry: Any) -> None:
+    """Validate one ``[[custom_rules]]`` entry — failures become config notes
+    so a bad rule never crashes a scan (it is skipped instead)."""
+    if not isinstance(entry, dict):
+        cfg.notes.append("config: custom rule entry must be a table — skipped")
+        return
+    rid = str(entry.get("id", "")).strip()
+    title = str(entry.get("title", "")).strip() or rid
+    pattern = str(entry.get("pattern", ""))
+    if not rid:
+        cfg.notes.append("config: custom rule without an id — skipped")
+        return
+    if not pattern:
+        cfg.notes.append(f"config: custom rule {rid}: no pattern — skipped")
+        return
+    try:
+        regex = re.compile(pattern)
+    except re.error as exc:
+        cfg.notes.append(f"config: custom rule {rid}: invalid pattern ({exc}) — skipped")
+        return
+    try:
+        severity = Severity.parse(str(entry.get("severity", "medium")))
+    except ValueError as exc:
+        cfg.notes.append(f"config: custom rule {rid}: {exc} — using medium")
+        severity = Severity.MEDIUM
+    extensions: tuple[str, ...] | None = None
+    ext_list = entry.get("extensions")
+    if isinstance(ext_list, list) and ext_list:
+        extensions = tuple(
+            (str(e).lower() if str(e).startswith(".") else f".{str(e).lower()}")
+            for e in ext_list
+        )
+    cfg.custom_rules.append(CustomRule(
+        id=rid,
+        title=title,
+        severity=severity,
+        pattern=pattern,
+        regex=regex,
+        message=str(entry.get("message", "")),
+        fix=str(entry.get("fix", "")),
+        extensions=extensions,
+        cwe=str(entry.get("cwe", "")),
+        confidence=str(entry.get("confidence", "high")),
+    ))
 
 
 def load_config(root: Path, explicit: str | None = None) -> Config:

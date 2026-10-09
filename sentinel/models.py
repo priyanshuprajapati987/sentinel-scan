@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
@@ -64,8 +65,15 @@ class Finding:
         """Dedupe key — same rule hitting the same line is one finding."""
         return (self.rule_id, self.path, self.line, self.message[:80])
 
+    def fingerprint(self) -> str:
+        """Stable 12-char id derived from :meth:`key` — shown in reports
+        and accepted by ``sentinel allow`` to suppress this finding."""
+        raw = "|".join(str(part) for part in self.key()).encode("utf-8")
+        return hashlib.sha1(raw, usedforsecurity=False).hexdigest()[:12]
+
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.fingerprint(),
             "rule_id": self.rule_id,
             "title": self.title,
             "severity": self.severity.name,

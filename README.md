@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/priyanshuprajapati987/sentinel-scan)](https://github.com/priyanshuprajapati987/sentinel-scan/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-189%20passing-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](CHANGELOG.md)
 
 **Full-sweep security scanner for source repositories** — secrets, code
 vulnerabilities, dependency audits and git hygiene in one command, with a
@@ -13,6 +13,7 @@ score, a grade, fix suggestions and SARIF output.
 pip install .
 sentinel init .                    # write a starter sentinel.toml
 sentinel scan .                    # console report, exits 1 on HIGH+
+sentinel allow a1b2c3d4e5f6 --reason "test fixture"   # accept a finding
 sentinel install-hook .            # gate every commit on staged findings
 sentinel scan . --changed-since origin/main   # PR/diff mode: changed files only
 sentinel scan . -f sarif -o out.sarif
@@ -52,9 +53,10 @@ coverage; `npm` on PATH for npm audit coverage.
 ```
 sentinel scan [path] [options]
 sentinel init [path]               # write starter sentinel.toml (--force to overwrite)
+sentinel allow FINGERPRINT [path]  # accept a finding: appends [[suppressions]] to sentinel.toml
+sentinel rules                     # list the full rule catalog (incl. your custom rules)
 sentinel install-hook [path]       # install the pre-commit gate (--force for foreign hooks)
 sentinel uninstall-hook [path]     # remove the hook sentinel installed
-sentinel rules                     # list the full rule catalog
 ```
 
 | Option | Meaning |
@@ -89,21 +91,46 @@ rule_id = "SEC020"
 path = "tests/fixtures/**"
 reason = "intentional vulnerable fixtures"
 expires = "2027-01-01"                # optional — after this date the rule is live again
+
+# Your own regex rules — scanned line-by-line like the built-ins.
+[[custom_rules]]
+id = "CORP001"
+title = "Internal API token"
+severity = "high"                     # info | low | medium | high | critical
+pattern = "corp_[A-Za-z0-9]{40}"
+extensions = [".py", ".env"]          # optional — omit to scan every text file
+fix = "Rotate the token and move it to a secret store."
 ```
 
 Precedence: `--config` → `sentinel.toml` → `.sentinel.json` → defaults.
+An invalid custom-rule pattern becomes a config note and is skipped —
+a typo never crashes a scan.
 
-## Rule catalog (45 rules)
+### Accepting a finding — `sentinel allow`
+
+Every finding is printed with a stable 12-char id (`[a1b2c3…]` in the
+console report, `"id"` in the JSON output). To accept one permanently:
+
+```bash
+sentinel allow a1b2c3d4e5f6 --reason "intentional test fixture"
+```
+
+This re-scans, resolves the id (6+ char prefix is enough) and appends a
+`[[suppressions]]` block to `sentinel.toml`. Re-running on an already
+allowed finding is a no-op. The suppression matches by rule + path, so the
+finding stays gone even if the surrounding lines shift.
+
+## Rule catalog (52 rules)
 
 | Range | Area | Examples |
 |---|---|---|
 | SEC001–SEC013 | Vendor secrets | AWS `AKIA…`, GitHub `ghp_`/`github_pat_`, OpenAI `sk-`, Slack, JWT, DB URLs, Stripe, Telegram, basic-auth URLs |
 | SEC014–SEC015 | Generic secrets | `password/api_key/token = "<literal>"` — only fires above an entropy threshold, placeholders (`changeme`, `${VAR}`, …) are never flagged |
-| SEC020–SEC030 | Injection & dangerous APIs | `eval`/`exec`, `shell=True`, `os.system`, unsafe `pickle`/`yaml.load`, `verify=False`, `debug=True`, CORS `*`, f-string SQL |
-| SEC031–SEC037 | Web/file risks | `innerHTML`, `dangerouslySetInnerHTML`, remote script piped to a shell, XXE, `mktemp`, dynamic `__import__` |
-| SEC038–SEC040 | CI/workflow + perms | `pull_request_target` + checkout, unpinned third-party actions, `chmod 777` |
+| SEC020–SEC037 | Injection & dangerous APIs | `eval`/`exec`, `shell=True`, `os.system`, unsafe `pickle`/`yaml.load`, `verify=False`, `debug=True`, CORS `*`, f-string SQL, `innerHTML`, remote script piped to a shell, XXE, `mktemp`, dynamic `__import__` |
+| SEC038–SEC042 | CI/workflow security | `pull_request_target` + checkout, unpinned third-party actions, `chmod 777`, **`${{ github.event.* }}` inside `run:` (script injection, SEC041)**, `permissions: write-all` (SEC042) |
 | SEC050–SEC055 | Git hygiene & history | tracked `.env`/keys, credentialed remotes, `.gitignore` gaps, >50 MB blobs, secrets in history |
 | SEC060–SEC062 | Dependencies | unpinned versions, `pip-audit` CVEs, `npm audit` CVEs (offline → INFO note, never a failure) |
+| SEC070–SEC074 | Container / IaC | untagged `FROM` (SEC070, stage-aware), `:latest` (SEC071), secrets in `ENV`/`ARG` (SEC072), `privileged: true` / `docker.sock` (SEC073), Dockerfile without `.dockerignore` (SEC074); remote-script-piped-to-a-shell also covers Dockerfiles |
 
 Every secret finding's evidence is **redacted before it leaves the rule
 module** (`sk-pro…7f2c` style) — reports and CI logs never echo a live
@@ -149,7 +176,7 @@ sentinel uninstall-hook .          # removes it again
 
 ```yaml
 - repo: https://github.com/priyanshuprajapati987/sentinel-scan
-  rev: v0.1.1
+  rev: v0.2.0
   hooks:
     - id: sentinel
 ```
@@ -170,9 +197,12 @@ sentinel scan . --staged --no-history --no-deps --fail-on high -q
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 189 tests
+python -m pytest      # 237 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
+
+CI runs lint + tests on **ubuntu and windows** + a self-scan gate.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for rule conventions.
 
 ## License
 

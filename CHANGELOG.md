@@ -6,6 +6,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-08
+
+### Added
+- `[[custom_rules]]` in `sentinel.toml` — your own regex line rules
+  (id/title/severity/pattern, optional `extensions`, `fix`, `cwe`,
+  `message`); invalid patterns become config notes and are skipped
+- `sentinel allow FINGERPRINT` — accept a finding: resolves the 12-char id
+  shown in console reports / JSON (`"id"`) and appends a
+  `[[suppressions]]` block to `sentinel.toml` (idempotent, `--reason`
+  supported, 6+ char prefix matching)
+- `sentinel rules` now also lists custom rules from `./sentinel.toml`
+- GitHub Actions rules: SEC041 `${{ github.event.* }}` / `github.head_ref`
+  script injection inside `run:` steps (inline + block scalars; `if:` /
+  `env:` contexts stay unflagged per GitHub's own hardening guide) and
+  SEC042 `permissions: write-all`
+- Container/IaC rules: SEC070 untagged `FROM` (stage-aware — named-stage
+  re-entry and `${ARG}` templates are not flagged), SEC071 `:latest`,
+  SEC072 secrets baked into `ENV`/`ARG`, SEC073 `privileged: true` /
+  `docker.sock`, SEC074 Dockerfile present but no `.dockerignore`
+- SEC034 (remote script piped to shell) now also covers Dockerfiles
+- Console findings and JSON reports carry a stable 12-char finding id
+- CI: test job runs on ubuntu **and** windows
+- CONTRIBUTING.md — rule conventions, ID allocation, gates
+
+### Changed
+- `allow_secrets` filtering now applies only to secret findings — SAST and
+  custom-rule hits are managed via suppressions / `sentinel allow`
+- Dockerfile / Dockerfile.* are discovered and scanned like any other
+  source file
+
 ## [0.1.1] - 2026-10-08
 
 ### Added
@@ -39,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/priyanshuprajapati987/sentinel-scan/releases/tag/v0.1.0
