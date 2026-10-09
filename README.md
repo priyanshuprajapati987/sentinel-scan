@@ -205,6 +205,15 @@ sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 CI runs lint + tests on **ubuntu and windows** + a self-scan gate.
 See [CONTRIBUTING.md](CONTRIBUTING.md) for rule conventions.
 
-## License
+## License & Legal
 
-MIT — see [LICENSE](LICENSE).
+The code is **MIT** — see [LICENSE](LICENSE). Full set of applicable
+project files:
+
+| File | What it covers |
+|------|----------------|
+| [LICENSE](LICENSE) | MIT license for all source, docs, and release artifacts (also shipped inside the wheel/sdist) |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Zero runtime dependencies — full transparency on dev-only tools |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Contributor Covenant v2.1 |
+| [SECURITY.md](SECURITY.md) | Vulnerability reporting via GitHub Security Advisories |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution + rule-authoring conventions |

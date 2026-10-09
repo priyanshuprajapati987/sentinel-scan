@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1 (enforcement via
+  GitHub Security Advisories, no personal email required)
+- `THIRD_PARTY_NOTICES.md` — explicit zero-runtime-dependency statement +
+  dev-tool license transparency table
+- README "License & Legal" table linking all applicable project files
+- Dependabot config for GitHub Actions version bumps
+- CI badge on README
+
+### Fixed
+- CI workflow YAML: step name containing `:` (`Self scan (gate: high)`)
+  crashed the YAML parser — GitHub created runs with **0 jobs** and instant
+  failure. Step name is now quoted; `pytest-timeout` installed properly
+  (the `||` shell fallback is gone)
+- CI actions bumped to v7 (`checkout`, `setup-python`, `upload-artifact`)
+  — silences Node.js 20 deprecation warnings
+
+### Changed
+- Repository made **public** (MIT from day one; description, topics, and
+  secret scanning + push protection enabled)
+
 ## [0.2.0] - 2026-10-08
 
 ### Added
