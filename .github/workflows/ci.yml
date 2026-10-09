@@ -1,6 +1,7 @@
 # CI — explicit array trigger (billing fixed 2026-10-08; auto-triggers ON).
-# Every job keeps timeout-minutes. If billing breaks again, disable the
-# workflow from repo settings instead of letting runs fail (failure mails).
+# Public repo = unlimited free Actions minutes. Every job keeps
+# timeout-minutes. If billing ever breaks again, disable the workflow from
+# repo settings instead of letting runs fail (failure mails).
 name: ci
 
 on: [push, pull_request, workflow_dispatch]

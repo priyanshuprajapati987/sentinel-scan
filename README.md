@@ -1,6 +1,7 @@
 # Sentinel Scan
 
 [![Release](https://img.shields.io/github/v/release/priyanshuprajapati987/sentinel-scan)](https://github.com/priyanshuprajapati987/sentinel-scan/releases)
+[![CI](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](CHANGELOG.md)
