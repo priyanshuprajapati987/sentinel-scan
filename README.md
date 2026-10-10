@@ -6,9 +6,40 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
 [![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](CHANGELOG.md)
 
-**Full-sweep security scanner for source repositories** — secrets, code
-vulnerabilities, dependency audits and git hygiene in one command, with a
-score, a grade, fix suggestions and SARIF output.
+**One command that sweeps a repository's entire attack surface** — secrets,
+code vulnerabilities, dependency CVEs, and git hygiene — then hands you a
+score, a grade, fix suggestions, and SARIF that GitHub Code Scanning
+understands. Zero runtime dependencies, fully offline, MIT.
+
+---
+
+## What it does
+
+`sentinel scan .` inspects **four attack surfaces at once** and prints one
+combined verdict:
+
+1. **Secrets (SEC001–015)** — 15 vendor patterns (AWS, GitHub, OpenAI,
+   Slack, JWT, database URLs, Stripe, Telegram, basic-auth URLs) plus
+   entropy-gated generics. Evidence is **redacted before it leaves the rule
+   module** — reports and CI logs never echo a live credential.
+2. **Code vulnerabilities — SAST (SEC020–042)** — line-level rules for
+   Python, JavaScript, shell, YAML, env and config files: `eval`/`exec`,
+   `shell=True`, SQL f-strings, `verify=False`, CORS `*`, `innerHTML`,
+   unsafe pickle/yaml.load, CI script injection (`${{ github.event.* }}`
+   in `run:`), `permissions: write-all`, and more. CWE-tagged.
+3. **Dependencies (SEC060–062)** — unpinned versions always; real CVE
+   data via `pip-audit` / `npm audit` when installed. Offline → honest
+   INFO note, never a fake pass or a crash.
+4. **Git hygiene + history (SEC050–055)** — tracked `.env`/key files,
+   credentialed remotes, `.gitignore` gaps, >50 MB blobs, and secrets in
+   the last 500 commits.
+5. **Container / IaC (SEC070–074)** — untagged/`:latest` base images,
+   secrets baked into `ENV`/`ARG`, `privileged: true`, `docker.sock`,
+   Dockerfile without `.dockerignore`.
+
+And the verdict: **score 0–100 + letter grade A–F** (a CRITICAL finding
+caps the grade), fix suggestions per finding, stable 12-char finding ids,
+and exit codes that gate CI.
 
 ```bash
 pip install .
@@ -21,7 +52,21 @@ sentinel scan . -f sarif -o out.sarif
 sentinel scan . --fail-on never    # report only, always exit 0
 ```
 
-## Why not just GitHub's built-in security?
+---
+
+## Problems it solves
+
+| The problem | How Sentinel fixes it |
+|---|---|
+| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 52 rules across all four surfaces, zero runtime dependencies to install |
+| "Our secret scanner printed a live AWS key into the public CI log" | Evidence is **redacted inside the rule module** (`sk-pro…7f2c`) before any report, log, or SARIF file is built |
+| "False positives block every PR; turning the scanner off feels worse" | `sentinel allow <id>` (one line, per finding), `[[suppressions]]` with glob paths, `allow_secrets` values, baselines, and **expiry dates** — suppressions that heal themselves |
+| "GitHub's security features don't cover our private repos on the free plan" | Everything runs **locally and offline** — no plan, no cloud, no telemetry; works on private repos forever |
+| "CI takes 10 minutes scanning files this PR never touched" | `--changed-since <base-sha>` scans only the diff + uncommitted changes; `--staged` for commit-time scans |
+| "A wall of raw findings — no idea what's actually urgent" | Score + grade + severity gate (`--fail-on`); CRITICAL caps the grade so disasters can't hide behind an average |
+| "History leaks even when the working tree is clean" | SEC055 scans `git log -p` output (windowed, capped) for committed secrets |
+
+### Why not just GitHub's built-in security?
 
 | Capability | GitHub (private repos, free) | Sentinel |
 |---|---|---|
@@ -36,6 +81,21 @@ sentinel scan . --fail-on never    # report only, always exit 0
 | Score + letter grade | No | 0–100, grades A–F, CRITICAL caps the grade |
 | SARIF upload | Yes | Yes (SARIF 2.1.0 + `security-severity`) |
 | Free on private repos | Yes | Yes |
+
+---
+
+## Where you can use it
+
+| Context | How | What you get |
+|---|---|---|
+| **1. On your laptop (fully offline)** | `sentinel scan .` | Full sweep incl. git history — no network, no account, no telemetry |
+| **2. Every commit — pre-commit gate** | `sentinel install-hook .` (or the [pre-commit](https://pre-commit.com) framework) | Staged files + git hygiene only, instant and offline; history/deps stay in CI |
+| **3. CI on every push / PR** | `uses: priyanshuprajapati987/sentinel-scan@main` ([details](#ci)) | Full scan or PR-diff mode (`changed-since`) with a hard `--fail-on` gate |
+| **4. GitHub Code Scanning** | SARIF upload workflow ([details](#github-code-scanning)) | Findings appear as alerts in the repo's **Security → Code scanning** tab — [live example on this repo](https://github.com/priyanshuprajapati987/sentinel-scan/security/code-scanning/1) |
+| **5. Any stack** | — | Python, JavaScript, shell, YAML, Dockerfiles, GitHub workflows, `.env` files, git history |
+| **6. Private / air-gapped environments** | Same CLI | MIT, zero dependencies, offline by design — no paid plan required |
+
+---
 
 ## Install
 
@@ -146,7 +206,7 @@ jobs:
   sentinel:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }          # full history for SEC055
       - uses: priyanshuprajapati987/sentinel-scan@main
         with:
@@ -163,6 +223,34 @@ PR mode (scan only what the PR touches, fast + zero unrelated noise):
 ```
 
 Or as a plain step: `pip install . && sentinel scan . --changed-since origin/main --fail-on high -f sarif -o sentinel.sarif`.
+
+### GitHub Code Scanning
+
+Upload the SARIF so findings show up as **alerts in the Security tab**
+(free for public repos; this repo dogfoods it — see the
+[live alert](https://github.com/priyanshuprajapati987/sentinel-scan/security/code-scanning/1)):
+
+```yaml
+# .github/workflows/code-scanning.yml
+name: code-scanning
+on: [push]
+permissions:
+  contents: read
+  security-events: write      # required for the upload
+jobs:
+  upload-sarif:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.11" }
+      - run: pip install -e .
+      - run: sentinel scan . -f sarif -o sentinel.sarif --fail-on high
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with: { sarif_file: sentinel.sarif }
+```
 
 ## Pre-commit
 
@@ -202,8 +290,9 @@ python -m pytest      # 237 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 
-CI runs lint + tests on **ubuntu and windows** + a self-scan gate.
-See [CONTRIBUTING.md](CONTRIBUTING.md) for rule conventions.
+CI runs lint + tests on **ubuntu and windows** + a self-scan gate +
+a Code Scanning upload. See [CONTRIBUTING.md](CONTRIBUTING.md) for rule
+conventions.
 
 ## License & Legal
 
