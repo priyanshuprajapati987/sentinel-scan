@@ -1,0 +1,30 @@
+# Live E2E: sentinel's SARIF output uploaded to GitHub Code Scanning
+# (free on public repos). Upload runs even if the scan gate fails, so a
+# high finding still shows up as an alert instead of vanishing.
+name: code-scanning
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  upload-sarif:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Scan (SARIF)
+        run: sentinel scan . -f sarif -o sentinel.sarif --fail-on high
+      - name: Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: sentinel.sarif
