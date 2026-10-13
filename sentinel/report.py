@@ -1,4 +1,5 @@
-"""Report rendering: console, JSON, Markdown, HTML, SARIF 2.1.0."""
+"""Report rendering: console, JSON, Markdown, HTML, SARIF 2.1.0,
+GitHub Actions annotations, GitLab Code Quality."""
 
 from __future__ import annotations
 
@@ -299,6 +300,40 @@ def render_github(result) -> str:
     return "\n".join(lines) + "\n"
 
 
+# --- GitLab Code Quality report ----------------------------------------------
+# https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-artifact
+_GITLAB_SEVERITY = {
+    Severity.CRITICAL: "critical", Severity.HIGH: "high", Severity.MEDIUM: "medium",
+    Severity.LOW: "low", Severity.INFO: "info",
+}
+
+
+def render_gitlab(result) -> str:
+    """GitLab Code Quality report — consume as a CI artifact:
+
+    .. code-block:: yaml
+
+        artifacts:
+          reports:
+            codequality: sentinel-codequality.json
+    """
+    issues = []
+    for f in result.findings:
+        issues.append({
+            "type": "issue",
+            "check_id": f.rule_id,
+            "description": f.message or f.title,
+            "severity": _GITLAB_SEVERITY[f.severity],
+            "confidence": f.confidence if f.confidence in ("low", "medium", "high") else "medium",
+            "fingerprint": f.stable_fingerprint(),
+            "location": {
+                "path": f.path.replace("\\", "/"),
+                "lines": {"begin": f.line or 1},
+            },
+        })
+    return json.dumps(issues, indent=2, ensure_ascii=False)
+
+
 RENDERERS = {
     "console": render_console,
     "json": render_json,
@@ -307,6 +342,7 @@ RENDERERS = {
     "html": render_html,
     "sarif": render_sarif,
     "github": render_github,
+    "gitlab": render_gitlab,
 }
 
 
@@ -324,7 +360,7 @@ def write_report(fmt: str, result, output: str | None, quiet: bool = False) -> N
     if out.is_dir() or str(output).endswith(("/", "\\")):
         names = {"json": "report.json", "md": "report.md", "markdown": "report.md",
                  "html": "report.html", "sarif": "report.sarif",
-                 "github": "report.annotations"}
+                 "github": "report.annotations", "gitlab": "codequality.json"}
         out = out / names.get(fmt, f"report.{fmt}")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")

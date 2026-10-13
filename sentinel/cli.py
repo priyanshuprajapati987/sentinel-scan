@@ -228,7 +228,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         if not changed:
             print("no changed files", file=sys.stderr)
 
-    baseline_path = Path(args.baseline) if args.baseline else None
+    if args.baseline:
+        baseline_path: Path | None = Path(args.baseline)
+    elif cfg.baseline:
+        baseline_path = root / cfg.baseline  # sentinel.toml `baseline = "..."`
+    else:
+        baseline_path = None
     if baseline_path is not None and history_commits is None:
         history_commits = cfg.history_commits
     cfg_history = history_commits if history_commits is not None else cfg.history_commits

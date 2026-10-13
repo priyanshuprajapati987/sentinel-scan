@@ -6,7 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-10
+## [0.4.0] - 2026-10-13
+
+### Added
+- **`-f gitlab` report format** — GitLab Code Quality artifact
+  (`reports: codequality`); fingerprints are line-shift-tolerant so
+  GitLab's baseline dedup survives refactors; maps CRITICAL→critical …
+  INFO→info; file-level findings land at `lines.begin: 1`
+- **`baseline` config key** — set once in `sentinel.toml`
+  (`baseline = ".github/sentinel-baseline"`); every scan ignores its
+  findings and `--update-baseline` refreshes it in place. The `--baseline`
+  flag still overrides the config
+- **4 new rules (63 → 67)**
+  - SEC048 security check implemented with `assert` — stripped under
+    `python -O`, silently disabling the check (HIGH)
+  - SEC049 deprecated `crypto.createCipher`/`createDecipher` (MEDIUM)
+  - SEC056 `document.write` DOM XSS sink (MEDIUM)
+  - SEC057 `jwt.decode` without an explicit `algorithms=` allowlist —
+    blocks algorithm-confusion attacks (HIGH)
+
+## [0.3.0] - 2026-10-13
 
 ### Added
 - **Inline suppression comments** — `# sentinel-ignore SEC020` on the same
@@ -124,7 +143,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.0...v0.1.1
