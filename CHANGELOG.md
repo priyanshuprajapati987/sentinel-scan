@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-13
+
+### Added
+- **PHP SAST** (6 new rules, `.php`/`.phtml`): SEC077 unsafe
+  `unserialize()`, SEC078 shell exec (`system`/`exec`/`passthru`/
+  `shell_exec`/`popen`/`proc_open`), SEC079 deprecated `mysql_query()`,
+  SEC080 `preg_replace` `/e` code-execution modifier, SEC081 `extract()`
+  on request superglobals, SEC082 weak password hashes `md5()`/`sha1()`
+  — SEC020 (`eval`) now also covers PHP
+- **C# SAST** (4 new rules, `.cs`): SEC083 SQL string concatenation,
+  SEC084 `Process.Start` via cmd/powershell, SEC085 weak crypto
+  (DES/RC2/MD5/SHA-1 providers), SEC086 `BinaryFormatter`/`SoapFormatter`
+  deserialization
+- **Multi-ecosystem pin hygiene** (SEC060 extended): Ruby `Gemfile`
+  gems without a version constraint, PHP `composer.json` floating
+  constraints (`*`/`dev-master`; platform reqs skipped), Maven
+  `pom.xml` dynamic versions (`LATEST`/`RELEASE`)
+
 ## [0.5.0] - 2026-10-13
 
 ### Added
@@ -164,7 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...v0.3.0

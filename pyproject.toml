@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentinel-scan"
-version = "0.5.0"
-description = "Full-sweep security scanner Ã¢â‚¬â€ secrets, code vulnerabilities, dependencies and git hygiene in one command. Free, offline, private-repo friendly."
+version = "0.6.0"
+description = "Full-sweep security scanner ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â secrets, code vulnerabilities, dependencies and git hygiene in one command. Free, offline, private-repo friendly."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Priyanshu Prajapati" }]

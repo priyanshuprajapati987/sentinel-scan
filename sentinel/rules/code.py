@@ -24,9 +24,12 @@ DOCKER = frozenset({".dockerfile"})  # Dockerfile / dockerfile.dev via _ext_of()
 GO = frozenset({".go"})
 JAVA = frozenset({".java"})
 RB = frozenset({".rb", ".rake"})
+PHP = frozenset({".php", ".phtml", ".php3", ".php4", ".php5"})
+CS = frozenset({".cs"})
 ALL = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".sh", ".bash",
                  ".yml", ".yaml", ".env", ".ini", ".cfg", ".conf", ".html", ".vue",
-                 ".dockerfile", ".go", ".java", ".rb", ".rake"})
+                 ".dockerfile", ".go", ".java", ".rb", ".rake", ".php", ".phtml",
+                 ".php3", ".php4", ".php5", ".cs"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +56,7 @@ CODE_RULES: list[CodeRule] = [
     _c("SEC020", "eval() on dynamic input",
        r"(?<![\w.])eval\s*\(", Severity.HIGH, "CWE-95",
        "Replace eval with explicit parsing (json.loads, int(), ast.literal_eval).",
-       PY | JS | RB),
+       PY | JS | RB | PHP),
     _c("SEC021", "exec() / new Function() code execution",
        r"(?<![\w.])(?:exec\s*\(|new\s+Function\s*\()", Severity.HIGH, "CWE-94",
        "Never build code from strings — use data-driven dispatch instead.",
@@ -268,6 +271,67 @@ CODE_RULES: list[CodeRule] = [
        Severity.HIGH, "CWE-78",
        "Pass argv arrays without a shell (system([\"bin\", \"arg\"])) — never interpolate into a shell string.",
        RB,
+       confidence="medium"),
+    # --- PHP ----------------------------------------------------------------
+    _c("SEC077", "Unsafe unserialize() (PHP)",
+       r"(?<![\w.])unserialize\s*\(",
+       Severity.HIGH, "CWE-502",
+       "Never unserialize untrusted data — use json_decode with an explicit schema.",
+       PHP,
+       confidence="medium"),
+    _c("SEC078", "Shell command execution (PHP)",
+       r"(?<![\w.])(?:system|exec|passthru|shell_exec|popen|proc_open)\s*\(",
+       Severity.HIGH, "CWE-78",
+       "Avoid shelling out; validate/allowlist inputs and use escapeshellarg per argument.",
+       PHP,
+       confidence="medium"),
+    _c("SEC079", "Deprecated mysql_query() API (PHP)",
+       r"(?<![\w.])mysql_query\s*\(",
+       Severity.HIGH, "CWE-89",
+       "mysql_* was removed in PHP 7 — use mysqli/PDO with parameterized queries.",
+       PHP),
+    _c("SEC080", "preg_replace() with /e code-execution modifier (PHP)",
+       r"preg_replace\s*\(\s*[\"'][^\"'\n]*e['\"]",
+       Severity.HIGH, "CWE-94",
+       "Use preg_replace_callback with a real callback — the /e modifier evals the replacement.",
+       PHP),
+    _c("SEC081", "extract() on request superglobals (PHP)",
+       r"(?<![\w.])extract\s*\(\s*\$_(?:GET|POST|REQUEST|COOKIE)\b",
+       Severity.MEDIUM, "CWE-915",
+       "Never extract() request data into scope — it overwrites arbitrary variables.",
+       PHP,
+       confidence="medium"),
+    _c("SEC082", "Weak password hash md5()/sha1() (PHP)",
+       r"(?<![\w.$])(?:md5|sha1)\s*\(",
+       Severity.MEDIUM, "CWE-916",
+       "Use password_hash()/password_verify() (bcrypt/argon2) — md5/sha1 are not password KDFs.",
+       PHP,
+       confidence="medium"),
+    # --- C# -----------------------------------------------------------------
+    _c("SEC083", "SQL built by string concatenation (C#)",
+       r"(?:SqlCommand|OleDbCommand|MySqlCommand|SqliteCommand)\s*\([^)]*\+|"
+       r"(?:ExecuteReader|ExecuteNonQuery|ExecuteScalar)\s*\(\s*[^\n;]*\+",
+       Severity.HIGH, "CWE-89",
+       "Use parameterized commands (cmd.Parameters.AddWithValue / SqlParameter).",
+       CS,
+       confidence="medium"),
+    _c("SEC084", "Shell launched via Process.Start (C#)",
+       r"Process\.Start\s*\(\s*(?:@?\"(?:cmd|powershell|bash)|\"cmd\.exe\"|\"powershell\.exe\")|"
+       r"FileName\s*=\s*\"(?:cmd\.exe|powershell\.exe|bash)\"",
+       Severity.HIGH, "CWE-78",
+       "Start the target binary directly with an argument list — no shell wrapper.",
+       CS),
+    _c("SEC085", "Weak crypto algorithm (C#)",
+       r"(?:DESCryptoServiceProvider|RC2CryptoServiceProvider|"
+       r"new\s+MD5CryptoServiceProvider|SHA1CryptoServiceProvider)",
+       Severity.HIGH, "CWE-327",
+       "Use AES-GCM (AesGcm) or SHA-256+ — DES/RC2/MD5/SHA-1 are broken.",
+       CS),
+    _c("SEC086", "BinaryFormatter / SoapFormatter deserialization (C#)",
+       r"(?:BinaryFormatter|SoapFormatter|NetDataContractSerializer)\b",
+       Severity.HIGH, "CWE-502",
+       "Do not deserialize untrusted bytes with BinaryFormatter — use System.Text.Json with a schema.",
+       CS,
        confidence="medium"),
     _c("SEC071", "Dockerfile base image pinned to :latest",
        r"^\s*FROM\s+\S+:latest\b", Severity.MEDIUM, "CWE-829",

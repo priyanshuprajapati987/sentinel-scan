@@ -76,6 +76,73 @@ def scan_pin_hygiene(root: Path) -> list[Finding]:
                         fix=f"Pin {name} to an exact version (or at least a ~ range).",
                         cwe="CWE-1104", confidence="medium", scanner="deps",
                     ))
+
+    # --- Ruby Gemfile -------------------------------------------------------
+    gemfile = root / "Gemfile"
+    if gemfile.exists():
+        try:
+            glines = gemfile.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            glines = []
+        _gem = re.compile(r"^\s*gem\s+['\"]([^'\"]+)['\"](.*)$")
+        for i, raw in enumerate(glines, 1):
+            line = raw.split("#", 1)[0].rstrip()
+            m = _gem.match(line)
+            if not m:
+                continue
+            rest = m.group(2) or ""
+            if not re.search(r"[~>=<,\d]", rest):
+                findings.append(Finding(
+                    rule_id="SEC060", title="Unpinned dependency", severity=Severity.LOW,
+                    message=f"gem '{m.group(1)}' has no version constraint — "
+                    "Bundler may pull any future release.",
+                    path="Gemfile", line=i, evidence=line[:120],
+                    fix=f"Pin it: gem '{m.group(1)}', '~> <tested-version>'",
+                    cwe="CWE-1104", confidence="medium", scanner="deps",
+                ))
+
+    # --- PHP composer.json --------------------------------------------------
+    composer = root / "composer.json"
+    if composer.exists():
+        try:
+            cdata = json.loads(composer.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, json.JSONDecodeError):
+            cdata = {}
+        for section in ("require", "require-dev"):
+            for name, ver in (cdata.get(section) or {}).items():
+                if name.startswith(("php", "ext-")):
+                    continue  # platform requirements, not packagist deps
+                v = str(ver).strip()
+                if not re.search(r"\d", v) or v in {"*", "@dev", "dev-master", "dev-main"}:
+                    findings.append(Finding(
+                        rule_id="SEC060", title="Unpinned dependency", severity=Severity.LOW,
+                        message=f"composer {section}.{name} = '{v}' — floating constraint "
+                        "pulls any future release (or an arbitrary dev branch).",
+                        path="composer.json", line=0, evidence=f"{name}: {v}",
+                        fix=f"Pin {name} to an exact version or a bounded range (^1.2).",
+                        cwe="CWE-1104", confidence="medium", scanner="deps",
+                    ))
+
+    # --- Java Maven pom.xml (dynamic versions) ------------------------------
+    pom = root / "pom.xml"
+    if pom.exists():
+        try:
+            plines = pom.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            plines = []
+        _dyn = re.compile(r"<version>\s*(LATEST|RELEASE|latest|release)\s*</version>", re.I)
+        for i, raw in enumerate(plines, 1):
+            m = _dyn.search(raw)
+            if m:
+                findings.append(Finding(
+                    rule_id="SEC060", title="Unpinned dependency", severity=Severity.LOW,
+                    message=f"Maven <version>{m.group(1)}</version> resolves the newest "
+                    "release at build time — builds are not reproducible and a "
+                    "compromised release would be pulled automatically.",
+                    path="pom.xml", line=i, evidence=raw.strip()[:120],
+                    fix="Replace LATEST/RELEASE with an exact version (or a locked BOM).",
+                    cwe="CWE-1104", confidence="medium", scanner="deps",
+                ))
     return findings
 
 

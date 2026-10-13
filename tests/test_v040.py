@@ -197,4 +197,4 @@ class TestNewRulesV040:
 
     def test_rule_count_is_current(self):
         from sentinel.cli import _catalog
-        assert len(_catalog()) == 76
+        assert len(_catalog()) == 86

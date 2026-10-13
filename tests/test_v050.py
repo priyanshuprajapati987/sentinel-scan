@@ -204,6 +204,6 @@ class TestCatalogV050:
                     "SEC066", "SEC067", "SEC068", "SEC069"):
             assert rid in ids
 
-    def test_rule_count_is_76(self):
+    def test_rule_count_is_86(self):
         from sentinel.cli import _catalog
-        assert len(_catalog()) == 76
+        assert len(_catalog()) == 86
