@@ -6,7 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 ### Added
+- **Inline suppression comments** — `# sentinel-ignore SEC020` on the same
+  line, or `# sentinel-ignore-next-line` on the line above (comma lists and
+  bare `sentinel-ignore` for all rules); honoured for `#`, `//`, `--`
+  comments; opt out with `inline_suppressions = false` in sentinel.toml;
+  count surfaces in the `suppressed` stat
+- **`sentinel diff OLD NEW`** — compare two SARIF or sentinel JSON reports
+  and gate CI on findings that are **NEW** since a baseline (ratchet);
+  matches by line-shift-tolerant `partialFingerprints` so a finding that
+  merely moved is unchanged, not new+removed; `--fail-on`, `-f json`, `-o`
+- **`-f github` report format** — GitHub Actions workflow-command
+  annotations (`::error` / `::warning`) so findings render inline on the
+  PR diff without a SARIF upload
+- **SARIF `partialFingerprints`** — stable 12-char id per finding
+  (`sentinelStable/v1`) derived from rule+path+evidence, independent of
+  the line number
+- **11 new rules (52 → 63)**
+  - SEC016 AWS secret access key (context + 40-char value, redacted)
+  - SEC017 credential in URL query string (`?api_key=…`, redacted)
+  - SEC018 hardcoded Bearer token (entropy-gated, redacted)
+  - SEC019 hardcoded application secret key (`SECRET_KEY`/`JWT_SECRET`/…,
+    entropy-gated, redacted)
+  - SEC043 open redirect (user input into redirect target)
+  - SEC044 server-side template from dynamic string (SSTI)
+  - SEC045 unsafe archive extraction (`extractall`)
+  - SEC046 HTTP call without a timeout (`requests`/`httpx`)
+  - SEC047 TLS verification disabled in download (`curl -k` / `--insecure`)
+  - SEC075 Dockerfile `ADD` from remote URL
+  - SEC076 container explicitly running as `USER root`
+  - SEC040 extended: `0o777` mode literals in Python
 - `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1 (enforcement via
   GitHub Security Advisories, no personal email required)
 - `THIRD_PARTY_NOTICES.md` — explicit zero-runtime-dependency statement +
@@ -93,7 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/priyanshuprajapati987/sentinel-scan/releases/tag/v0.1.0

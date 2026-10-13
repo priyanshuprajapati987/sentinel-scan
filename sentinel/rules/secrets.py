@@ -122,6 +122,26 @@ SECRET_RULES: list[SecretRule] = [
        Severity.MEDIUM, "CWE-798",
        "Confirm this is not a live credential; prefer runtime generation.",
        min_entropy=4.0, value_group=2),
+    _r("SEC016", "AWS secret access key",
+       r"(?:aws)?[_\-]?secret[_\-]?access[_\-]?key[\"']?\s*[:=]\s*[\"']([A-Za-z0-9/+=]{40})[\"']",
+       Severity.CRITICAL, "CWE-798",
+       "Rotate the secret in IAM; load it from the environment / a secret manager."),
+    _r("SEC017", "Credential in URL query string",
+       r"([?&](?:api[_\-]?key|access[_\-]?token|token|password|secret|auth)"
+       r"=[A-Za-z0-9_\-\.%]{12,})",
+       Severity.HIGH, "CWE-598",
+       "Move the credential out of the URL into a header or env-injected config."),
+    _r("SEC018", "Hardcoded Bearer token",
+       r"\bBearer\s+([A-Za-z0-9_\-\.]{20,})",
+       Severity.HIGH, "CWE-798",
+       "Load the token from the environment at runtime; rotate if this one was live.",
+       min_entropy=3.0),
+    _r("SEC019", "Hardcoded application secret key",
+       r"\b(?:SECRET_KEY|SECRET_KEY_BASE|JWT_SECRET|FLASK_SECRET|APP_SECRET)"
+       r"\s*[:=]\s*[\"']([^\"'\s]{8,})[\"']",
+       Severity.HIGH, "CWE-798",
+       "Load the secret from the environment at boot; rotate any committed value.",
+       min_entropy=3.0),
 ]
 
 # Placeholders people legitimately commit — never flag these.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _dt
 import fnmatch
 import json
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,6 +130,57 @@ def _expiry_active(sup: Suppression) -> bool:
     return _dt.date.today() <= expires
 
 
+# --- inline suppression comments --------------------------------------------
+# `# sentinel-ignore SEC020`        — suppress that rule on the SAME line
+# `# sentinel-ignore-next-line`     — suppress on the NEXT line (all rules)
+# `// sentinel-ignore SEC014,SEC015` — comma list; bare keyword = all rules
+_MARKER_RE = re.compile(
+    r"\bsentinel-ignore(-next-line)?"
+    r"(?:\s+([A-Za-z0-9_*,]+(?:\s*,\s*[A-Za-z0-9_*]+)*))?",
+    re.IGNORECASE,
+)
+_RULE_ID_RE = re.compile(r"[A-Za-z]{2,10}\d{2,5}$")
+
+
+def _parse_ignore_rules(fragment: str) -> set[str]:
+    """Turn the marker's tail into a set of uppercase rule ids
+    (``{"*"}`` when no ids are given — suppress everything on the line)."""
+    ids: set[str] = set()
+    for tok in re.split(r"[,\s]+", fragment.strip()):
+        if not tok or tok == "*":
+            continue
+        if _RULE_ID_RE.fullmatch(tok):
+            ids.add(tok.upper())
+    return ids or {"*"}
+
+
+def _inline_suppress(findings: list[Finding], text: str) -> int:
+    """Drop findings cancelled by ``sentinel-ignore`` comments in ``text``.
+
+    Returns the number suppressed. Markers apply per (line, rule) pair —
+    `sentinel-ignore SEC020` on line N keeps other rules on line N live.
+    """
+    same: dict[int, set[str]] = {}
+    nxt: dict[int, set[str]] = {}
+    for lineno, line in enumerate(text.splitlines(), 1):
+        for m in _MARKER_RE.finditer(line):
+            rules = _parse_ignore_rules(m.group(2) or "")
+            bucket = nxt if m.group(1) else same
+            bucket.setdefault(lineno + 1 if m.group(1) else lineno, set()).update(rules)
+    if not same and not nxt:
+        return 0
+    removed = 0
+    keep: list[Finding] = []
+    for f in findings:
+        rules = same.get(f.line, set()) | nxt.get(f.line, set())
+        if "*" in rules or f.rule_id.upper() in rules:
+            removed += 1
+        else:
+            keep.append(f)
+    findings[:] = keep
+    return removed
+
+
 def _suppressed_by(findings: list[Finding], sups: list[Suppression]) -> int:
     removed = 0
     for sup in sups:
@@ -226,6 +278,8 @@ def scan(
                 if not (h.scanner == "secrets" and any(
                     a in h.evidence.lower() or a in h.message.lower() for a in allow))
             ]
+        if cfg.inline_suppressions:
+            result.suppressed += _inline_suppress(hits, text)
         result.findings.extend(hits)
 
     patterns = list(cfg.excludes) + list(extra_excludes or [])

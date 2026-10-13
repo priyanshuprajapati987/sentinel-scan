@@ -71,9 +71,28 @@ class Finding:
         raw = "|".join(str(part) for part in self.key()).encode("utf-8")
         return hashlib.sha1(raw, usedforsecurity=False).hexdigest()[:12]
 
+    def stable_key(self) -> tuple:
+        """Line-shift-tolerant identity for report diffing.
+
+        Same rule hitting the same evidence in the same file is the "same"
+        finding even after surrounding lines are inserted — so
+        ``sentinel diff`` reports it as unchanged, not as new+removed.
+        Evidence (or the title for evidence-less file-level findings) keeps
+        the pair unique; the line number is deliberately excluded.
+        """
+        anchor = self.evidence.strip()[:120] if self.evidence.strip() else self.title
+        return (self.rule_id, self.path.replace("\\", "/"), anchor)
+
+    def stable_fingerprint(self) -> str:
+        """12-char id derived from :meth:`stable_key` — emitted as SARIF
+        ``partialFingerprints`` and used by ``sentinel diff``."""
+        raw = "|".join(str(part) for part in self.stable_key()).encode("utf-8")
+        return hashlib.sha1(raw, usedforsecurity=False).hexdigest()[:12]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.fingerprint(),
+            "stable_id": self.stable_fingerprint(),
             "rule_id": self.rule_id,
             "title": self.title,
             "severity": self.severity.name,

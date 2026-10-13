@@ -99,6 +99,7 @@ class Config:
     history: bool = True
     history_commits: int = 500
     deps_cves: bool = True
+    inline_suppressions: bool = True  # honour `sentinel-ignore` comments in source
     max_file_bytes: int = DEFAULT_SCAN_LIMITS["max_file_bytes"]
     notes: list[str] = field(default_factory=list)
 
@@ -138,6 +139,8 @@ def _apply(cfg: Config, data: dict[str, Any]) -> None:
         cfg.history_commits = data["history_commits"]
     if "deps_cves" in data:
         cfg.deps_cves = bool(data["deps_cves"])
+    if "inline_suppressions" in data:
+        cfg.inline_suppressions = bool(data["inline_suppressions"])
     if isinstance(data.get("max_file_bytes"), int):
         cfg.max_file_bytes = data["max_file_bytes"]
     for entry in data.get("suppressions", []) or []:

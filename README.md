@@ -4,7 +4,7 @@
 [![CI](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-297%20passing-brightgreen)](CHANGELOG.md)
 
 **One command that sweeps a repository's entire attack surface** — secrets,
 code vulnerabilities, dependency CVEs, and git hygiene — then hands you a
@@ -18,24 +18,26 @@ understands. Zero runtime dependencies, fully offline, MIT.
 `sentinel scan .` inspects **four attack surfaces at once** and prints one
 combined verdict:
 
-1. **Secrets (SEC001–015)** — 15 vendor patterns (AWS, GitHub, OpenAI,
-   Slack, JWT, database URLs, Stripe, Telegram, basic-auth URLs) plus
+1. **Secrets (SEC001–019)** — 19 vendor patterns (AWS incl. secret access
+   keys, GitHub, OpenAI, Slack, JWT, database URLs, Stripe, Telegram,
+   basic-auth URLs, Bearer tokens, credentials in URL query strings) plus
    entropy-gated generics. Evidence is **redacted before it leaves the rule
    module** — reports and CI logs never echo a live credential.
-2. **Code vulnerabilities — SAST (SEC020–042)** — line-level rules for
+2. **Code vulnerabilities — SAST (SEC020–047)** — line-level rules for
    Python, JavaScript, shell, YAML, env and config files: `eval`/`exec`,
    `shell=True`, SQL f-strings, `verify=False`, CORS `*`, `innerHTML`,
    unsafe pickle/yaml.load, CI script injection (`${{ github.event.* }}`
-   in `run:`), `permissions: write-all`, and more. CWE-tagged.
+   in `run:`), `permissions: write-all`, open redirects, SSTI,
+   unbounded HTTP calls, and more. CWE-tagged.
 3. **Dependencies (SEC060–062)** — unpinned versions always; real CVE
    data via `pip-audit` / `npm audit` when installed. Offline → honest
    INFO note, never a fake pass or a crash.
 4. **Git hygiene + history (SEC050–055)** — tracked `.env`/key files,
    credentialed remotes, `.gitignore` gaps, >50 MB blobs, and secrets in
    the last 500 commits.
-5. **Container / IaC (SEC070–074)** — untagged/`:latest` base images,
+5. **Container / IaC (SEC070–076)** — untagged/`:latest` base images,
    secrets baked into `ENV`/`ARG`, `privileged: true`, `docker.sock`,
-   Dockerfile without `.dockerignore`.
+   `ADD` from remote URLs, `USER root`, Dockerfile without `.dockerignore`.
 
 And the verdict: **score 0–100 + letter grade A–F** (a CRITICAL finding
 caps the grade), fix suggestions per finding, stable 12-char finding ids,
@@ -49,6 +51,8 @@ sentinel allow a1b2c3d4e5f6 --reason "test fixture"   # accept a finding
 sentinel install-hook .            # gate every commit on staged findings
 sentinel scan . --changed-since origin/main   # PR/diff mode: changed files only
 sentinel scan . -f sarif -o out.sarif
+sentinel diff base.sarif out.sarif # fail only on findings NEW since base
+sentinel scan . -f github          # inline PR annotations in Actions
 sentinel scan . --fail-on never    # report only, always exit 0
 ```
 
@@ -58,7 +62,7 @@ sentinel scan . --fail-on never    # report only, always exit 0
 
 | The problem | How Sentinel fixes it |
 |---|---|
-| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 52 rules across all four surfaces, zero runtime dependencies to install |
+| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 63 rules across all four surfaces, zero runtime dependencies to install |
 | "Our secret scanner printed a live AWS key into the public CI log" | Evidence is **redacted inside the rule module** (`sk-pro…7f2c`) before any report, log, or SARIF file is built |
 | "False positives block every PR; turning the scanner off feels worse" | `sentinel allow <id>` (one line, per finding), `[[suppressions]]` with glob paths, `allow_secrets` values, baselines, and **expiry dates** — suppressions that heal themselves |
 | "GitHub's security features don't cover our private repos on the free plan" | Everything runs **locally and offline** — no plan, no cloud, no telemetry; works on private repos forever |
@@ -115,6 +119,7 @@ coverage; `npm` on PATH for npm audit coverage.
 sentinel scan [path] [options]
 sentinel init [path]               # write starter sentinel.toml (--force to overwrite)
 sentinel allow FINGERPRINT [path]  # accept a finding: appends [[suppressions]] to sentinel.toml
+sentinel diff OLD NEW              # compare two SARIF/JSON reports — gate on NEW findings
 sentinel rules                     # list the full rule catalog (incl. your custom rules)
 sentinel install-hook [path]       # install the pre-commit gate (--force for foreign hooks)
 sentinel uninstall-hook [path]     # remove the hook sentinel installed
@@ -122,7 +127,7 @@ sentinel uninstall-hook [path]     # remove the hook sentinel installed
 
 | Option | Meaning |
 |---|---|
-| `-f, --format` | `console` (default), `json`, `md`, `html`, `sarif`, `all` |
+| `-f, --format` | `console` (default), `json`, `md`, `html`, `sarif`, `github`, `all` |
 | `-o, --output` | write report to file (or directory for `all`) |
 | `--fail-on` | `critical` \| `high` (default) \| `medium` \| `low` \| `never` |
 | `--staged` | scan only git-staged files (pre-commit mode) |
@@ -181,17 +186,39 @@ This re-scans, resolves the id (6+ char prefix is enough) and appends a
 allowed finding is a no-op. The suppression matches by rule + path, so the
 finding stays gone even if the surrounding lines shift.
 
-## Rule catalog (52 rules)
+### Inline suppression comments
+
+For a one-off ignore you don't want in `sentinel.toml`, mark the line in
+the source itself:
+
+```python
+password = get_password()  # sentinel-ignore SEC014
+
+# sentinel-ignore-next-line SEC020
+eval(dynamic_expression)
+
+subprocess.run(cmd, shell=True)  # sentinel-ignore   (bare = all rules on this line)
+```
+
+Works with `#`, `//` and `--` comment styles; comma lists
+(`sentinel-ignore SEC014,SEC015`) suppress several rules at once. Inline
+markers are honoured by default — set `inline_suppressions = false` in
+`sentinel.toml` to turn them off (e.g. in orgs that mandate config-only
+suppressions). Suppressed counts still appear in the report's
+`suppressed` stat, so they stay visible.
+
+## Rule catalog (63 rules)
 
 | Range | Area | Examples |
 |---|---|---|
-| SEC001–SEC013 | Vendor secrets | AWS `AKIA…`, GitHub `ghp_`/`github_pat_`, OpenAI `sk-`, Slack, JWT, DB URLs, Stripe, Telegram, basic-auth URLs |
-| SEC014–SEC015 | Generic secrets | `password/api_key/token = "<literal>"` — only fires above an entropy threshold, placeholders (`changeme`, `${VAR}`, …) are never flagged |
+| SEC001–SEC013 | Vendor secrets | AWS `AKIA…` + secret access keys, GitHub `ghp_`/`github_pat_`, OpenAI `sk-`, Slack, JWT, DB URLs, Stripe, npm/HF/PyPI tokens, Telegram, basic-auth URLs |
+| SEC014–SEC019 | Generic & contextual secrets | entropy-gated `password/api_key = "<literal>"`, credentials in URL query strings (`?api_key=…`), hardcoded Bearer tokens, app secret keys (`SECRET_KEY`/`JWT_SECRET`) — all redacted |
 | SEC020–SEC037 | Injection & dangerous APIs | `eval`/`exec`, `shell=True`, `os.system`, unsafe `pickle`/`yaml.load`, `verify=False`, `debug=True`, CORS `*`, f-string SQL, `innerHTML`, remote script piped to a shell, XXE, `mktemp`, dynamic `__import__` |
 | SEC038–SEC042 | CI/workflow security | `pull_request_target` + checkout, unpinned third-party actions, `chmod 777`, **`${{ github.event.* }}` inside `run:` (script injection, SEC041)**, `permissions: write-all` (SEC042) |
+| SEC043–SEC047 | Modern app flaws | open redirect, SSTI (`render_template_string`), `tar.extractall`, HTTP calls without `timeout`, `curl -k`/`--insecure` |
 | SEC050–SEC055 | Git hygiene & history | tracked `.env`/keys, credentialed remotes, `.gitignore` gaps, >50 MB blobs, secrets in history |
 | SEC060–SEC062 | Dependencies | unpinned versions, `pip-audit` CVEs, `npm audit` CVEs (offline → INFO note, never a failure) |
-| SEC070–SEC074 | Container / IaC | untagged `FROM` (SEC070, stage-aware), `:latest` (SEC071), secrets in `ENV`/`ARG` (SEC072), `privileged: true` / `docker.sock` (SEC073), Dockerfile without `.dockerignore` (SEC074); remote-script-piped-to-a-shell also covers Dockerfiles |
+| SEC070–SEC076 | Container / IaC | untagged `FROM` (SEC070, stage-aware), `:latest` (SEC071), secrets in `ENV`/`ARG` (SEC072), `privileged: true` / `docker.sock` (SEC073), `ADD` from URL (SEC075), `USER root` (SEC076), Dockerfile without `.dockerignore` (SEC074); remote-script-piped-to-a-shell also covers Dockerfiles |
 
 Every secret finding's evidence is **redacted before it leaves the rule
 module** (`sk-pro…7f2c` style) — reports and CI logs never echo a live
@@ -252,6 +279,39 @@ jobs:
         with: { sarif_file: sentinel.sarif }
 ```
 
+### Inline PR annotations (no SARIF upload)
+
+`-f github` emits GitHub Actions workflow commands (`::error` / `::warning`)
+so findings render **directly on the PR diff** — useful when you don't want
+code scanning enabled, or as a second channel alongside it:
+
+```yaml
+      - run: pip install -e .
+      - run: sentinel scan . --changed-since origin/main -f github
+```
+
+### Ratchet: fail only on NEW findings
+
+A green baseline shouldn't re-block every PR. Scan once, commit the SARIF
+as a baseline, then in CI diff against it — `sentinel diff` exits 1 only
+when the new report has findings the baseline doesn't (line-shift-tolerant
+via `partialFingerprints`, so a finding that merely moved is *unchanged*,
+not new+removed):
+
+```yaml
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v7
+        with: { python-version: "3.11" }
+      - run: pip install -e .
+      - run: sentinel scan . -f sarif -o new.sarif --fail-on never
+      - run: sentinel diff .github/sentinel-baseline.sarif new.sarif --fail-on high
+```
+
+Refresh the committed baseline whenever you accept a new finding (or fix
+one and want the removal recorded). `-f json` on the `diff` command prints
+machine-readable `{added, removed, unchanged}`.
+
 ## Pre-commit
 
 Managed hook (recommended — refuses to touch hooks sentinel did not install):
@@ -265,7 +325,7 @@ sentinel uninstall-hook .          # removes it again
 
 ```yaml
 - repo: https://github.com/priyanshuprajapati987/sentinel-scan
-  rev: v0.2.0
+  rev: v0.3.0
   hooks:
     - id: sentinel
 ```
@@ -286,7 +346,7 @@ sentinel scan . --staged --no-history --no-deps --fail-on high -q
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 237 tests
+python -m pytest      # 297 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 

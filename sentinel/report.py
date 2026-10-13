@@ -238,6 +238,7 @@ def render_sarif(result) -> str:
             "level": level,
             "message": {"text": f.message or f.title},
             "locations": [loc],
+            "partialFingerprints": {"sentinelStable/v1": f.stable_fingerprint()},
             "properties": {"severity": f.severity.name, "cwe": f.cwe,
                            "confidence": f.confidence},
         })
@@ -266,6 +267,38 @@ def _security_severity(f: Finding) -> str:
             Severity.MEDIUM: "5.0", Severity.LOW: "2.0", Severity.INFO: "0.0"}[f.severity]
 
 
+# --- GitHub Actions workflow-command annotations ----------------------------
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands
+# Property values must escape , : % CR LF; message escapes % CR LF.
+def _gh_escape(text: str, *, props: bool = False) -> str:
+    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    if props:
+        text = text.replace(":", "%3A").replace(",", "%2C")
+    return text
+
+
+def render_github(result) -> str:
+    """GitHub Actions annotations — findings appear inline on the PR diff.
+
+    Use in CI as a plain step: ``sentinel scan . -f github``. CRITICAL/HIGH
+    become ``::error`` annotations, everything else ``::warning``.
+    """
+    lines: list[str] = []
+    for f in result.findings:
+        command = "error" if f.severity >= Severity.HIGH else "warning"
+        props = [f"file={_gh_escape(f.path.replace(chr(92), '/'), props=True)}"]
+        if f.line:
+            props.append(f"line={f.line}")
+        props.append(f"title={_gh_escape(f'{f.rule_id} {f.title}', props=True)}")
+        msg = f.message or f.title
+        if f.evidence:
+            msg = f"{msg} [{f.evidence}]"
+        lines.append(f"::{command} {','.join(props)}::{_gh_escape(msg[:400])}")
+    if not lines and not result.suppressed:
+        lines.append("::notice::sentinel: no findings")
+    return "\n".join(lines) + "\n"
+
+
 RENDERERS = {
     "console": render_console,
     "json": render_json,
@@ -273,6 +306,7 @@ RENDERERS = {
     "markdown": render_markdown,
     "html": render_html,
     "sarif": render_sarif,
+    "github": render_github,
 }
 
 
@@ -289,7 +323,8 @@ def write_report(fmt: str, result, output: str | None, quiet: bool = False) -> N
     out = Path(output)
     if out.is_dir() or str(output).endswith(("/", "\\")):
         names = {"json": "report.json", "md": "report.md", "markdown": "report.md",
-                 "html": "report.html", "sarif": "report.sarif"}
+                 "html": "report.html", "sarif": "report.sarif",
+                 "github": "report.annotations"}
         out = out / names.get(fmt, f"report.{fmt}")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")

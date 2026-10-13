@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import __version__, engine, report, score
 from .config import STARTER_TOML, load_config
+from .diff import diff_reports, load_report_findings, render_diff
 from .models import Severity
 from .rules import code as code_rules
 from .rules import custom as custom_rules_mod
@@ -105,6 +106,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     unhook_p = sub.add_parser("uninstall-hook", help="remove the sentinel pre-commit hook")
     unhook_p.add_argument("path", nargs="?", default=".", help="git repository root (default: .)")
+
+    diff_p = sub.add_parser(
+        "diff",
+        help="compare two reports — gate CI on findings that are NEW since a baseline")
+    diff_p.add_argument("old", help="baseline report (SARIF or sentinel JSON)")
+    diff_p.add_argument("new", help="current report (SARIF or sentinel JSON)")
+    diff_p.add_argument("--fail-on", default="high",
+                        choices=["critical", "high", "medium", "low", "never"],
+                        help="minimum severity among NEW findings that exits 1 (default: high)")
+    diff_p.add_argument("-f", "--format", default="console", choices=["console", "json"],
+                        help="output format (default: console)")
+    diff_p.add_argument("-o", "--output", default=None, help="write the diff to a file")
     return parser
 
 
@@ -342,6 +355,34 @@ def _cmd_uninstall_hook(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_diff(args: argparse.Namespace) -> int:
+    try:
+        old = load_report_findings(Path(args.old))
+        new = load_report_findings(Path(args.new))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    diff = diff_reports(old, new)
+    if args.format == "json":
+        payload = {
+            "tool": {"name": "sentinel", "version": __version__},
+            "added": [f.to_dict() for f in diff.added],
+            "removed": [f.to_dict() for f in diff.removed],
+            "unchanged": diff.unchanged,
+        }
+        text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    else:
+        text = render_diff(diff)
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+        print(f"diff written: {out}")
+    else:
+        print(text, end="")
+    return 1 if score.should_fail(diff.added, args.fail_on) else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -362,6 +403,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_install_hook(args)
         if args.command == "uninstall-hook":
             return _cmd_uninstall_hook(args)
+        if args.command == "diff":
+            return _cmd_diff(args)
         parser.print_help()
         return 2
     except KeyboardInterrupt:  # pragma: no cover
