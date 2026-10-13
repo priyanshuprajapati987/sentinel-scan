@@ -1,5 +1,5 @@
 """Report rendering: console, JSON, Markdown, HTML, SARIF 2.1.0,
-GitHub Actions annotations, GitLab Code Quality."""
+GitHub Actions annotations, GitLab Code Quality, JUnit XML."""
 
 from __future__ import annotations
 
@@ -334,6 +334,47 @@ def render_gitlab(result) -> str:
     return json.dumps(issues, indent=2, ensure_ascii=False)
 
 
+# --- JUnit XML ---------------------------------------------------------------
+# One failing <testcase> per finding — shows up in GitLab "Unit test report",
+# Jenkins test tabs, and any CI that consumes JUnit artifacts.
+def render_junit(result) -> str:
+    from xml.sax.saxutils import escape
+
+    def attr(text: str) -> str:
+        return escape(text, {'"': "&quot;", "<": "&lt;", ">": "&gt;"})
+
+    groups: dict[str, list[Finding]] = defaultdict(list)
+    for f in result.findings:
+        groups[f.rule_id].append(f)
+
+    suites: list[str] = []
+    for rid in sorted(groups):
+        cases: list[str] = []
+        for f in groups[rid]:
+            loc = f"{f.path}:{f.line}" if f.line else f.path
+            msg = f"{f.severity.name}: {f.message or f.title}"[:300]
+            body = f.evidence or ""
+            if f.fix:
+                body = f"{body}\nfix: {f.fix}" if body else f"fix: {f.fix}"
+            cases.append(
+                f'    <testcase name="{attr(loc)}" classname="sentinel.{attr(rid)}">\n'
+                f'      <failure message="{attr(msg)}">{escape(body[:800])}</failure>\n'
+                f'    </testcase>'
+            )
+        suites.append(
+            f'  <testsuite name="sentinel.{attr(rid)}" tests="{len(cases)}" '
+            f'failures="{len(cases)}">\n' + "\n".join(cases) + "\n  </testsuite>"
+        )
+    if not suites:  # clean scan — one green suite so report tabs still render
+        suites.append('  <testsuite name="sentinel" tests="1" failures="0"/>')
+    total = len(result.findings)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<testsuites name="sentinel" tests="{max(total, 1)}" failures="{total}">\n'
+        + "\n".join(suites) + "\n</testsuites>\n"
+    )
+
+
 RENDERERS = {
     "console": render_console,
     "json": render_json,
@@ -343,6 +384,7 @@ RENDERERS = {
     "sarif": render_sarif,
     "github": render_github,
     "gitlab": render_gitlab,
+    "junit": render_junit,
 }
 
 
@@ -360,7 +402,8 @@ def write_report(fmt: str, result, output: str | None, quiet: bool = False) -> N
     if out.is_dir() or str(output).endswith(("/", "\\")):
         names = {"json": "report.json", "md": "report.md", "markdown": "report.md",
                  "html": "report.html", "sarif": "report.sarif",
-                 "github": "report.annotations", "gitlab": "codequality.json"}
+                 "github": "report.annotations", "gitlab": "codequality.json",
+                 "junit": "junit.xml"}
         out = out / names.get(fmt, f"report.{fmt}")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")

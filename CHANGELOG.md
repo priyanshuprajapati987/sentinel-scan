@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-13
+
+### Added
+- **Polyglot SAST — Go, Java, Ruby** (languages now: Python, JavaScript/
+  TypeScript, shell, YAML, Dockerfile, env/config, **Go, Java, Ruby**;
+  9 new rules, 67 → 76)
+  - Go: SEC058 SQL built with `fmt.Sprintf` / string concat into
+    `db.Query`, SEC059 `InsecureSkipVerify: true`
+  - Java: SEC064 `Runtime.exec` / `ProcessBuilder`, SEC065 MD5/SHA-1
+    `MessageDigest`, SEC066 weak ciphers (DES/RC4/Blowfish),
+    SEC067 `ObjectInputStream` / `readObject` native deserialization
+  - Ruby: SEC068 unsafe `YAML.load` (Psych), SEC069 shell interpolation
+    (`system("ls #{x}")`, backticks, Open3)
+  - Shared: SEC063 `sh`/`bash -c` shell invocation (Go `exec.Command`,
+    Java `String[]{"sh","-c",…}`, Ruby `system("sh","-c",…)`)
+  - SEC020/SEC021 (`eval`/`exec`) now also cover Ruby
+- **`-f junit` report format** — JUnit XML (one failing testcase per
+  finding, grouped by rule) for GitLab "Unit test report", Jenkins test
+  tabs, and any CI consuming JUnit artifacts; clean scans emit a single
+  green suite; special characters XML-escaped
+
 ## [0.4.0] - 2026-10-13
 
 ### Added
@@ -143,7 +164,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.1.1...v0.2.0

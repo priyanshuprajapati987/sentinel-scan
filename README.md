@@ -4,7 +4,7 @@
 [![CI](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-327%20passing-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-362%20passing-brightgreen)](CHANGELOG.md)
 
 **One command that sweeps a repository's entire attack surface** — secrets,
 code vulnerabilities, dependency CVEs, and git hygiene — then hands you a
@@ -23,13 +23,15 @@ combined verdict:
    basic-auth URLs, Bearer tokens, credentials in URL query strings) plus
    entropy-gated generics. Evidence is **redacted before it leaves the rule
    module** — reports and CI logs never echo a live credential.
- 2. **Code vulnerabilities — SAST (SEC020–057)** — line-level rules for
-   Python, JavaScript, shell, YAML, env and config files: `eval`/`exec`,
-   `shell=True`, SQL f-strings, `verify=False`, CORS `*`, `innerHTML`,
-   unsafe pickle/yaml.load, CI script injection (`${{ github.event.* }}`
+ 2. **Code vulnerabilities — SAST (SEC020–069)** — line-level rules for
+   **Python, JavaScript/TypeScript, Go, Java, Ruby**, shell, YAML, env
+   and config files: `eval`/`exec`, `shell=True`, SQL built by string
+   formatting (incl. Go `fmt.Sprintf`), `verify=False`, CORS `*`,
+   `innerHTML`/`document.write`, unsafe pickle/yaml (incl. Ruby
+   `YAML.load`) and Java `ObjectInputStream`, weak ciphers/digests, JWT
+   algorithm confusion, CI script injection (`${{ github.event.* }}`
    in `run:`), `permissions: write-all`, open redirects, SSTI,
-   unbounded HTTP calls, `assert`-based auth checks, JWT
-   algorithm-confusion, and more. CWE-tagged.
+   unbounded HTTP calls, `assert`-based auth checks, and more. CWE-tagged.
 3. **Dependencies (SEC060–062)** — unpinned versions always; real CVE
    data via `pip-audit` / `npm audit` when installed. Offline → honest
    INFO note, never a fake pass or a crash.
@@ -55,6 +57,7 @@ sentinel scan . -f sarif -o out.sarif
 sentinel diff base.sarif out.sarif # fail only on findings NEW since base
 sentinel scan . -f github          # inline PR annotations in Actions
 sentinel scan . -f gitlab          # GitLab Code Quality report artifact
+sentinel scan . -f junit           # JUnit XML for CI test-report tabs
 sentinel scan . --fail-on never    # report only, always exit 0
 ```
 
@@ -64,7 +67,7 @@ sentinel scan . --fail-on never    # report only, always exit 0
 
 | The problem | How Sentinel fixes it |
 |---|---|
-| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 67 rules across all four surfaces, zero runtime dependencies to install |
+| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 76 rules across all four surfaces, zero runtime dependencies to install |
 | "Our secret scanner printed a live AWS key into the public CI log" | Evidence is **redacted inside the rule module** (`sk-pro…7f2c`) before any report, log, or SARIF file is built |
 | "False positives block every PR; turning the scanner off feels worse" | `sentinel allow <id>` (one line, per finding), `[[suppressions]]` with glob paths, `allow_secrets` values, baselines, and **expiry dates** — suppressions that heal themselves |
 | "GitHub's security features don't cover our private repos on the free plan" | Everything runs **locally and offline** — no plan, no cloud, no telemetry; works on private repos forever |
@@ -129,7 +132,7 @@ sentinel uninstall-hook [path]     # remove the hook sentinel installed
 
 | Option | Meaning |
 |---|---|
-| `-f, --format` | `console` (default), `json`, `md`, `html`, `sarif`, `github`, `gitlab`, `all` |
+| `-f, --format` | `console` (default), `json`, `md`, `html`, `sarif`, `github`, `gitlab`, `junit`, `all` |
 | `-o, --output` | write report to file (or directory for `all`) |
 | `--fail-on` | `critical` \| `high` (default) \| `medium` \| `low` \| `never` |
 | `--staged` | scan only git-staged files (pre-commit mode) |
@@ -211,19 +214,22 @@ markers are honoured by default — set `inline_suppressions = false` in
 suppressions). Suppressed counts still appear in the report's
 `suppressed` stat, so they stay visible.
 
-## Rule catalog (67 rules)
+## Rule catalog (76 rules)
 
 | Range | Area | Examples |
 |---|---|---|
 | SEC001–SEC013 | Vendor secrets | AWS `AKIA…` + secret access keys, GitHub `ghp_`/`github_pat_`, OpenAI `sk-`, Slack, JWT, DB URLs, Stripe, npm/HF/PyPI tokens, Telegram, basic-auth URLs |
 | SEC014–SEC019 | Generic & contextual secrets | entropy-gated `password/api_key = "<literal>"`, credentials in URL query strings (`?api_key=…`), hardcoded Bearer tokens, app secret keys (`SECRET_KEY`/`JWT_SECRET`) — all redacted |
-| SEC020–SEC037 | Injection & dangerous APIs | `eval`/`exec`, `shell=True`, `os.system`, unsafe `pickle`/`yaml.load`, `verify=False`, `debug=True`, CORS `*`, f-string SQL, `innerHTML`, remote script piped to a shell, XXE, `mktemp`, dynamic `__import__` |
+| SEC020–SEC037 | Injection & dangerous APIs (PY/JS/RB) | `eval`/`exec`, `shell=True`, `os.system`, unsafe `pickle`/`yaml.load`, `verify=False`, `debug=True`, CORS `*`, f-string SQL, `innerHTML`, remote script piped to a shell, XXE, `mktemp`, dynamic `__import__` |
 | SEC038–SEC042 | CI/workflow security | `pull_request_target` + checkout, unpinned third-party actions, `chmod 777`, **`${{ github.event.* }}` inside `run:` (script injection, SEC041)**, `permissions: write-all` (SEC042) |
 | SEC043–SEC047 | Modern app flaws | open redirect, SSTI (`render_template_string`), `tar.extractall`, HTTP calls without `timeout`, `curl -k`/`--insecure` |
 | SEC048–SEC049 | Auth & crypto hygiene | security checks implemented with `assert` (stripped under `python -O`), deprecated `crypto.createCipher`/`createDecipher` |
 | SEC050–SEC055 | Git hygiene & history | tracked `.env`/keys, credentialed remotes, `.gitignore` gaps, >50 MB blobs, secrets in history |
 | SEC056–SEC057 | Web / token flaws | `document.write` XSS sink, `jwt.decode` without an `algorithms=` allowlist |
+| SEC058–SEC059 | Go | SQL via `fmt.Sprintf`/concat into `db.Query`, `InsecureSkipVerify: true` |
 | SEC060–SEC062 | Dependencies | unpinned versions, `pip-audit` CVEs, `npm audit` CVEs (offline → INFO note, never a failure) |
+| SEC063–SEC067 | Shell-out & Java crypto/deser | `sh`/`bash -c` invocation (Go/Java/Ruby), `Runtime.exec`/`ProcessBuilder`, MD5/SHA-1 `MessageDigest`, DES/RC4 ciphers, `ObjectInputStream.readObject` |
+| SEC068–SEC069 | Ruby | unsafe `YAML.load` (Psych), shell interpolation (`system("ls #{x}")`, backticks, Open3) |
 | SEC070–SEC076 | Container / IaC | untagged `FROM` (SEC070, stage-aware), `:latest` (SEC071), secrets in `ENV`/`ARG` (SEC072), `privileged: true` / `docker.sock` (SEC073), `ADD` from URL (SEC075), `USER root` (SEC076), Dockerfile without `.dockerignore` (SEC074); remote-script-piped-to-a-shell also covers Dockerfiles |
 
 Every secret finding's evidence is **redacted before it leaves the rule
@@ -313,6 +319,22 @@ sentinel-scan:
       codequality: sentinel-codequality.json
 ```
 
+### JUnit test report
+
+`-f junit` turns findings into failing testcases (grouped by rule) —
+GitLab's **Unit test report** tab, Jenkins test axes, and any
+JUnit-consuming CI surface them without a SARIF pipeline:
+
+```yaml
+sentinel-scan:
+  script:
+    - pip install .
+    - sentinel scan . -f junit -o sentinel-junit.xml --fail-on never
+  artifacts:
+    reports:
+      junit: sentinel-junit.xml
+```
+
 ### Ratchet: fail only on NEW findings
 
 A green baseline shouldn't re-block every PR. Scan once, commit the SARIF
@@ -369,7 +391,7 @@ sentinel scan . --staged --no-history --no-deps --fail-on high -q
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 327 tests
+python -m pytest      # 362 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 

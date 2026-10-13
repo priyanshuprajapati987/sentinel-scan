@@ -21,9 +21,12 @@ SHELL = frozenset({".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"})
 YAML = frozenset({".yml", ".yaml"})
 CONFIG = frozenset({".env", ".ini", ".cfg", ".conf", ".properties", ".toml"})
 DOCKER = frozenset({".dockerfile"})  # Dockerfile / dockerfile.dev via _ext_of()
+GO = frozenset({".go"})
+JAVA = frozenset({".java"})
+RB = frozenset({".rb", ".rake"})
 ALL = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".sh", ".bash",
                  ".yml", ".yaml", ".env", ".ini", ".cfg", ".conf", ".html", ".vue",
-                 ".dockerfile"})
+                 ".dockerfile", ".go", ".java", ".rb", ".rake"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,11 +53,11 @@ CODE_RULES: list[CodeRule] = [
     _c("SEC020", "eval() on dynamic input",
        r"(?<![\w.])eval\s*\(", Severity.HIGH, "CWE-95",
        "Replace eval with explicit parsing (json.loads, int(), ast.literal_eval).",
-       PY | JS),
+       PY | JS | RB),
     _c("SEC021", "exec() / new Function() code execution",
        r"(?<![\w.])(?:exec\s*\(|new\s+Function\s*\()", Severity.HIGH, "CWE-94",
        "Never build code from strings — use data-driven dispatch instead.",
-       PY | JS),
+       PY | JS | RB),
     _c("SEC022", "Shell invocation with shell=True",
        r"shell\s*=\s*True|shell\s*:\s*true", Severity.HIGH, "CWE-78",
        "Pass an argument list without shell=True; validate/allowlist inputs.",
@@ -206,6 +209,65 @@ CODE_RULES: list[CodeRule] = [
        Severity.HIGH, "CWE-347",
        "Pass algorithms=['HS256'] (your exact set) to block algorithm-confusion attacks.",
        PY | JS,
+       confidence="medium"),
+    # --- Go -----------------------------------------------------------------
+    _c("SEC058", "SQL built with fmt.Sprintf (Go)",
+       r"fmt\.Sprintf\s*\(\s*[\"`][^\"`]*\b(?:SELECT|INSERT INTO|UPDATE|DELETE FROM|DROP TABLE)\b"
+       r"|db\.(?:Query|Exec|QueryRow)\w*\s*\(\s*(?:fmt\.Sprintf|[^\n]*?\+\s*\w)",
+       Severity.HIGH, "CWE-89",
+       "Use database/sql parameterized queries (db.Query(q, args...)) — never format SQL.",
+       GO,
+       confidence="medium"),
+    _c("SEC059", "TLS InsecureSkipVerify enabled (Go)",
+       r"InsecureSkipVerify\s*:\s*true",
+       Severity.HIGH, "CWE-295",
+       "Verify certificates — pin a CA bundle instead of skipping verification.",
+       GO),
+    _c("SEC063", "Shell invocation via sh/bash -c (Go/Java/Ruby)",
+       r"exec\.Command\s*\(\s*\"(?:sh|bash|zsh|cmd|powershell)\"\s*,\s*\"-c\""
+       r"|Runtime\.getRuntime\s*\(\s*\)\s*\.exec\s*\(\s*new\s+String\[\]\s*\{\s*\"(?:sh|bash|zsh|cmd|powershell)\"\s*,\s*\"-c\""
+       r"|(?<![\w.])(?:system|exec)\s*\(\s*\"(?:sh|bash|zsh|cmd|powershell)\"\s*,\s*\"-c\"",
+       Severity.HIGH, "CWE-78",
+       "Call the binary directly with an argument list — no shell, no string building.",
+       GO | JAVA | RB),
+    # --- Java ---------------------------------------------------------------
+    _c("SEC064", "Runtime.exec / ProcessBuilder shell execution (Java)",
+       r"Runtime\.getRuntime\s*\(\s*\)\s*\.exec\s*\(|new\s+ProcessBuilder\s*\(",
+       Severity.HIGH, "CWE-78",
+       "Avoid shelling out; if required, validate inputs and never pass a single shell string.",
+       JAVA,
+       confidence="medium"),
+    _c("SEC065", "Weak message digest (MD5 / SHA-1) in Java",
+       r"MessageDigest\.getInstance\s*\(\s*\"(?:MD5|SHA-1)\"\s*\)",
+       Severity.MEDIUM, "CWE-327",
+       "Use SHA-256+ (or HMAC) — MD5/SHA-1 are broken for security purposes.",
+       JAVA,
+       confidence="medium"),
+    _c("SEC066", "Weak cipher algorithm (DES / RC4 / Blowfish) in Java",
+       r"Cipher\.getInstance\s*\(\s*\"(?:DES|DESede|RC4|RC2|Blowfish|PBEWithMD5And)",
+       Severity.HIGH, "CWE-327",
+       "Use AES-GCM (e.g. \"AES/GCM/NoPadding\") with a random IV.",
+       JAVA),
+    _c("SEC067", "Java native deserialization (ObjectInputStream)",
+       r"(?<![\w.])new\s+ObjectInputStream\s*\(|\.readObject\s*\(",
+       Severity.HIGH, "CWE-502",
+       "Do not deserialize untrusted bytes — use JSON with a schema, or a safe format.",
+       JAVA,
+       confidence="medium"),
+    # --- Ruby ---------------------------------------------------------------
+    _c("SEC068", "Unsafe YAML.load (Ruby Psych)",
+       r"(?<![\w.])YAML\.load\s*\(",
+       Severity.HIGH, "CWE-502",
+       "Use YAML.safe_load (Psych.safe_load) — plain load instantiates arbitrary objects.",
+       RB,
+       negate=re.compile(r"safe_load", re.IGNORECASE)),
+    _c("SEC069", "Shell command with interpolation (Ruby)",
+       r"(?<![\w.])(?:system|exec)\s*\(?[^\n]*?#\{"
+       r"|(?<![\w.])(?:Open3\.(?:capture2?|popen)|IO\.popen)\s*\(?[^\n]*?#\{"
+       r"|`[^`\n]*#\{",
+       Severity.HIGH, "CWE-78",
+       "Pass argv arrays without a shell (system([\"bin\", \"arg\"])) — never interpolate into a shell string.",
+       RB,
        confidence="medium"),
     _c("SEC071", "Dockerfile base image pinned to :latest",
        r"^\s*FROM\s+\S+:latest\b", Severity.MEDIUM, "CWE-829",
