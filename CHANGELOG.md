@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-13
+
+### Fixed
+- **SEC069 Ruby false positive on English prose** — `puts "system status #{x}"`
+  and similar interpolated strings containing the words "system"/"exec"
+  no longer fire the rule. The pattern now requires a real call form:
+  `system("...#{...}")`, `system "...#{...}"`, or backtick interpolation.
+  Open3/IO.popen alternatives tightened the same way. Regression tests added.
+
 ## [0.6.0] - 2026-10-13
 
 ### Added
@@ -182,7 +191,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.3.0...v0.4.0

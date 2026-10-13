@@ -265,8 +265,8 @@ CODE_RULES: list[CodeRule] = [
        RB,
        negate=re.compile(r"safe_load", re.IGNORECASE)),
     _c("SEC069", "Shell command with interpolation (Ruby)",
-       r"(?<![\w.])(?:system|exec)\s*\(?[^\n]*?#\{"
-       r"|(?<![\w.])(?:Open3\.(?:capture2?|popen)|IO\.popen)\s*\(?[^\n]*?#\{"
+       r"(?<![\w.])(?:system|exec)\s*(?:\([^\n]*?#\{|\s+[\"'][^\n]*?#\{)"
+       r"|(?<![\w.])(?:Open3\.(?:capture2?|popen)|IO\.popen)\s*(?:\([^\n]*?#\{|\s+[\"'][^\n]*?#\{)"
        r"|`[^`\n]*#\{",
        Severity.HIGH, "CWE-78",
        "Pass argv arrays without a shell (system([\"bin\", \"arg\"])) — never interpolate into a shell string.",

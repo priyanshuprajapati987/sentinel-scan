@@ -177,6 +177,17 @@ class TestRubyRules:
     def test_sec069_system_interpolation(self):
         assert "SEC069" in self._ids('system("ls #{dir}")')
 
+    def test_sec069_system_string_form(self):
+        assert "SEC069" in self._ids('system "ls #{dir}"')
+
+    def test_sec069_prose_system_word_ok(self):
+        # FP regression: English word "system" inside an interpolated string
+        assert "SEC069" not in self._ids('puts "system status #{x}"')
+
+    def test_sec069_prose_exec_word_ok(self):
+        # FP regression: English word "exec" inside an interpolated string
+        assert "SEC069" not in self._ids('logger.info "exec time #{t}"')
+
     def test_sec069_backtick_interpolation(self):
         assert "SEC069" in self._ids("puts `git log #{ref}`")
 
