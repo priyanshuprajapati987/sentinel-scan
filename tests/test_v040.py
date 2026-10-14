@@ -194,7 +194,3 @@ class TestNewRulesV040:
         ids = {rid for rid, _t, _s in code.all_rules()}
         for rid in ("SEC048", "SEC049", "SEC056", "SEC057"):
             assert rid in ids
-
-    def test_rule_count_is_current(self):
-        from sentinel.cli import _catalog
-        assert len(_catalog()) == 86

@@ -26,10 +26,12 @@ JAVA = frozenset({".java"})
 RB = frozenset({".rb", ".rake"})
 PHP = frozenset({".php", ".phtml", ".php3", ".php4", ".php5"})
 CS = frozenset({".cs"})
+NATIVE = frozenset({".c", ".h", ".cpp", ".hpp", ".cc", ".cxx", ".c++", ".h++"})
 ALL = frozenset({".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".sh", ".bash",
                  ".yml", ".yaml", ".env", ".ini", ".cfg", ".conf", ".html", ".vue",
                  ".dockerfile", ".go", ".java", ".rb", ".rake", ".php", ".phtml",
-                 ".php3", ".php4", ".php5", ".cs"})
+                 ".php3", ".php4", ".php5", ".cs", ".c", ".h", ".cpp", ".hpp",
+                 ".cc", ".cxx", ".c++", ".h++"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,10 +137,12 @@ CODE_RULES: list[CodeRule] = [
        "Use defusedxml (defusedxml.ElementTree) to block external entity expansion.",
        PY,
        confidence="medium"),
-    _c("SEC036", "Insecure temporary file (mktemp)",
-       r"tempfile\.mktemp\s*\(", Severity.LOW, "CWE-377",
-       "Use tempfile.NamedTemporaryFile / mkstemp (atomic create).",
-       PY),
+    _c("SEC036", "Insecure temporary file (mktemp/tmpnam)",
+       r"tempfile\.mktemp\s*\(|(?<![\w.])(?:mktemp|tmpnam|tempnam)\s*\(",
+       Severity.LOW, "CWE-377",
+       "Use NamedTemporaryFile / mkstemp (or mkstemp-equivalent) — predictable "
+       "names are raceable (symlink attacks).",
+       PY | NATIVE),
     _c("SEC037", "Dynamic import of non-literal module",
        r"(?<![\w.])(__import__\s*\(\s*(?!['\"])|importlib\.import_module\s*\(\s*(?!['\"]))",
        Severity.MEDIUM, "CWE-470",
@@ -270,7 +274,36 @@ CODE_RULES: list[CodeRule] = [
        r"|`[^`\n]*#\{",
        Severity.HIGH, "CWE-78",
        "Pass argv arrays without a shell (system([\"bin\", \"arg\"])) — never interpolate into a shell string.",
-       RB,
+        RB,
+        confidence="medium"),
+    # --- C / C++ --------------------------------------------------------------
+    _c("SEC087", "gets() banned function (C/C++)",
+       r"(?<![\w.])gets\s*\(",
+       Severity.HIGH, "CWE-242",
+       "gets() cannot bound input — use fgets(buf, sizeof(buf), stdin) or std::getline.",
+       NATIVE),
+    _c("SEC088", "Unbounded string copy strcpy/strcat (C/C++)",
+       r"(?<![\w.])str(?:cpy|cat)\s*\(",
+       Severity.HIGH, "CWE-120",
+       "Use strncpy/strlcpy/strlcat (or std::string in C++) and always bound the copy.",
+       NATIVE),
+    _c("SEC089", "sprintf() without bounds (C/C++)",
+       r"(?<![\w.])(?:sprintf|vsprintf)\s*\(",
+       Severity.HIGH, "CWE-120",
+       "Use snprintf(dst, size, fmt, ...) — bound the output buffer. "
+       "snprintf/vsnprintf do not match this rule.",
+       NATIVE),
+    _c("SEC090", "Shell via system()/popen() (C/C++)",
+       r"(?<![\w.])(?:system|popen)\s*\(",
+       Severity.HIGH, "CWE-78",
+       "Avoid the shell — use fork+execv/execve with an argv array and a fixed binary path.",
+       NATIVE,
+       confidence="medium"),
+    _c("SEC091", "printf with non-literal format string (C/C++)",
+       r"(?<![\w.])(?:v?printf)\s*\(\s*[A-Za-z_]\w*\s*[,)]",
+       Severity.HIGH, "CWE-134",
+       "Hardcode the format string: printf(\"%s\", buf) — never pass user data as the format.",
+       NATIVE,
        confidence="medium"),
     # --- PHP ----------------------------------------------------------------
     _c("SEC077", "Unsafe unserialize() (PHP)",

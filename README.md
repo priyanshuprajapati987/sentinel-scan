@@ -4,7 +4,7 @@
 [![CI](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-397%20passing-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-429%20passing-brightgreen)](CHANGELOG.md)
 
 **One command that sweeps a repository's entire attack surface** — secrets,
 code vulnerabilities, dependency CVEs, and git hygiene — then hands you a
@@ -23,17 +23,17 @@ combined verdict:
    basic-auth URLs, Bearer tokens, credentials in URL query strings) plus
    entropy-gated generics. Evidence is **redacted before it leaves the rule
    module** — reports and CI logs never echo a live credential.
- 2. **Code vulnerabilities — SAST (SEC020–086)** — line-level rules for
-   **Python, JavaScript/TypeScript, Go, Java, Ruby, PHP, C#**, shell,
-   YAML, env and config files: `eval`/`exec`, `shell=True`, SQL built by
-   string formatting (incl. Go `fmt.Sprintf`, C# `SqlCommand` concat),
-   `verify=False`, CORS `*`, `innerHTML`/`document.write`, unsafe
-   pickle/yaml (incl. Ruby `YAML.load`, PHP `unserialize`) and Java
-   `ObjectInputStream`/C# `BinaryFormatter`, weak ciphers/digests, JWT
-   algorithm confusion, CI script injection (`${{ github.event.* }}`
-   in `run:`), `permissions: write-all`, open redirects, SSTI,
-   unbounded HTTP calls, `assert`-based auth checks, PHP `preg_replace/e`
-   and more. CWE-tagged.
+  2. **Code vulnerabilities — SAST (SEC020–091)** — line-level rules for
+    **Python, JavaScript/TypeScript, Go, Java, Ruby, PHP, C#, C/C++**, shell,
+    YAML, env and config files: `eval`/`exec`, `shell=True`, SQL built by
+    string formatting (incl. Go `fmt.Sprintf`, C# `SqlCommand` concat),
+    `verify=False`, CORS `*`, `innerHTML`/`document.write`, unsafe
+    pickle/yaml (incl. Ruby `YAML.load`, PHP `unserialize`) and Java
+    `ObjectInputStream`/C# `BinaryFormatter`, weak ciphers/digests, JWT
+    algorithm confusion, CI script injection (`${{ github.event.* }}`
+    in `run:`), `permissions: write-all`, open redirects, SSTI,
+    unbounded HTTP calls, `assert`-based auth checks, PHP `preg_replace/e`,
+    C/C++ `gets`/`strcpy`/`sprintf`/`system()`/format-string, and more. CWE-tagged.
 3. **Dependencies (SEC060–062)** — unpinned versions always; real CVE
    data via `pip-audit` / `npm audit` when installed. Offline → honest
    INFO note, never a fake pass or a crash.
@@ -69,7 +69,7 @@ sentinel scan . --fail-on never    # report only, always exit 0
 
 | The problem | How Sentinel fixes it |
 |---|---|
-| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 86 rules across all four surfaces, zero runtime dependencies to install |
+| "I need gitleaks + Semgrep + Trivy + a git-hygiene script — five tools, five configs, five CI jobs" | **One command, one config** (`sentinel.toml`), 91 rules across all four surfaces, zero runtime dependencies to install |
 | "Our secret scanner printed a live AWS key into the public CI log" | Evidence is **redacted inside the rule module** (`sk-pro…7f2c`) before any report, log, or SARIF file is built |
 | "False positives block every PR; turning the scanner off feels worse" | `sentinel allow <id>` (one line, per finding), `[[suppressions]]` with glob paths, `allow_secrets` values, baselines, and **expiry dates** — suppressions that heal themselves |
 | "GitHub's security features don't cover our private repos on the free plan" | Everything runs **locally and offline** — no plan, no cloud, no telemetry; works on private repos forever |
@@ -82,7 +82,7 @@ sentinel scan . --fail-on never    # report only, always exit 0
 | Capability | GitHub (private repos, free) | Sentinel |
 |---|---|---|
 | Secret scanning | Basic pattern set, alerts need setup | 15 vendor rules + entropy-gated generics, redacted evidence |
-| Code scanning (SAST) | CodeQL — Python/JS/Go/Java/C#/C++/Ruby/Rust/Go only | Lightweight line-level SAST for py/js/sh/yml/env/config, CWE-tagged, 0 dependencies |
+| Code scanning (SAST) | CodeQL — Python/JS/Go/Java/C#/C++/Ruby/Rust/Go only | Lightweight line-level SAST for py/js/sh/yml/env/config + go/java/rb/php/cs/c/cpp, CWE-tagged, 0 dependencies |
 | Dependency CVE audit | Dependabot (needs enablement + alerts) | `pip-audit` + `npm audit` when installed, graceful offline degradation |
 | Git hygiene (tracked `.env`, credentialed remotes, >50 MB blobs) | Not covered | SEC050–SEC054 |
 | Git **history** secret scan | Only on public repos (push protection) | SEC055 — `git log -p` scan, capped output |
@@ -128,6 +128,7 @@ sentinel init [path]               # write starter sentinel.toml (--force to ove
 sentinel allow FINGERPRINT [path]  # accept a finding: appends [[suppressions]] to sentinel.toml
 sentinel diff OLD NEW              # compare two SARIF/JSON reports — gate on NEW findings
 sentinel rules                     # list the full rule catalog (incl. your custom rules)
+sentinel explain SEC089            # full details for one rule (severity, CWE, pattern, fix)
 sentinel install-hook [path]       # install the pre-commit gate (--force for foreign hooks)
 sentinel uninstall-hook [path]     # remove the hook sentinel installed
 ```
@@ -216,7 +217,7 @@ markers are honoured by default — set `inline_suppressions = false` in
 suppressions). Suppressed counts still appear in the report's
 `suppressed` stat, so they stay visible.
 
-## Rule catalog (86 rules)
+## Rule catalog (91 rules)
 
 | Range | Area | Examples |
 |---|---|---|
@@ -235,6 +236,7 @@ suppressions). Suppressed counts still appear in the report's
 | SEC070–SEC076 | Container / IaC | untagged `FROM` (SEC070, stage-aware), `:latest` (SEC071), secrets in `ENV`/`ARG` (SEC072), `privileged: true` / `docker.sock` (SEC073), `ADD` from URL (SEC075), `USER root` (SEC076), Dockerfile without `.dockerignore` (SEC074); remote-script-piped-to-a-shell also covers Dockerfiles |
 | SEC077–SEC082 | PHP | unsafe `unserialize()`, shell exec (`system`/`shell_exec`/…), deprecated `mysql_query()`, `preg_replace` `/e`, `extract($_GET)` request-variable overwrite, `md5()`/`sha1()` password hashes |
 | SEC083–SEC086 | C# | SQL string concatenation into `SqlCommand`, `Process.Start` via cmd/powershell, DES/RC2/MD5/SHA-1 crypto providers, `BinaryFormatter`/`SoapFormatter` deserialization |
+| SEC087–SEC091 | C / C++ | `gets()` (banned), unbounded `strcpy`/`strcat` (`strncpy` clean), `sprintf`/`vsprintf` (`snprintf` clean), `system()`/`popen()`/`std::system`, `printf` with a non-literal format string (SEC036 also catches C `mktemp`/`tmpnam`/`tempnam`) |
 
 Every secret finding's evidence is **redacted before it leaves the rule
 module** (`sk-pro…7f2c` style) — reports and CI logs never echo a live
@@ -395,7 +397,7 @@ sentinel scan . --staged --no-history --no-deps --fail-on high -q
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 397 tests
+python -m pytest      # 429 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 

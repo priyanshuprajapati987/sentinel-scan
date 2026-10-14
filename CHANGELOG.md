@@ -6,6 +6,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-13
+
+### Added
+- **C / C++ SAST rules — 86 → 91 rules**:
+  - SEC087 `gets()` (CWE-242, banned function)
+  - SEC088 unbounded `strcpy` / `strcat` (CWE-120; `strncpy`/`strncat` clean)
+  - SEC089 `sprintf` / `vsprintf` without bounds (CWE-120; `snprintf` clean)
+  - SEC090 shell via `system()` / `popen()` (CWE-78, incl. `std::system`)
+  - SEC091 `printf` with a non-literal format string (CWE-134)
+  - File extensions: `.c .h .cpp .hpp .cc .cxx .c++ .h++`
+- **`sentinel explain <RULE>`** — full details for any rule in the catalog
+  (severity, CWE, confidence, applies-to extensions, regex pattern, fix).
+  Case-insensitive ids, works for secret/code/file/static/custom rules;
+  unknown ids exit 2 with a hint to run `sentinel rules`.
+
+### Changed
+- SEC036 (insecure temp file) now also catches C `mktemp` / `tmpnam` /
+  `tempnam` (same CWE-377 race class) — Python behaviour unchanged.
+- Rule-count assertion consolidated to a single test
+  (`tests/test_v070.py::test_rule_count_is_91`); the per-release copies in
+  v040/v050/v060 were removed (review recommendation — count drift).
+
 ## [0.6.1] - 2026-10-13
 
 ### Fixed
@@ -191,7 +213,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.4.0...v0.5.0

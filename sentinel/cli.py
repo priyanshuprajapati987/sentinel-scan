@@ -89,6 +89,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("rules", help="list the rule catalog (incl. custom rules from ./sentinel.toml)")
 
+    explain_p = sub.add_parser("explain", help="show full details for one rule (severity, CWE, pattern, fix)")
+    explain_p.add_argument("rule_id", help="rule id, e.g. SEC089 (case-insensitive)")
+
     allow_p = sub.add_parser("allow", help="accept a finding: appends [[suppressions]] to sentinel.toml")
     allow_p.add_argument("fingerprint", help="finding id shown in the scan output ([abc123...], min 6 chars)")
     allow_p.add_argument("path", nargs="?", default=".", help="repository root (default: .)")
@@ -138,6 +141,81 @@ def _cmd_rules() -> int:
     for rid, title, sev in catalog:
         print(f"{rid:<8} {sev.name:<9} {title}")
     print(f"\n{len(catalog)} rules")
+    return 0
+
+
+def _explain_entries() -> dict[str, dict]:
+    """Build id -> rule-details for every known rule (code/file/secret/static/custom)."""
+    entries: dict[str, dict] = {}
+
+    def add(rid: str, *, title: str, severity, cwe: str, fix: str,
+            confidence: str, kind: str, applies: list[str] | None,
+            pattern: str | None) -> None:
+        entries[rid] = {
+            "title": title, "severity": severity, "cwe": cwe, "fix": fix,
+            "confidence": confidence, "kind": kind, "applies": applies,
+            "pattern": pattern,
+        }
+
+    for r in secrets_rules.SECRET_RULES:
+        add(r.rule_id, title=r.title, severity=r.severity, cwe=r.cwe, fix=r.fix,
+            confidence="high", kind="secret", applies=None,
+            pattern=r.pattern.pattern)
+    for r in code_rules.CODE_RULES:
+        add(r.rule_id, title=r.title, severity=r.severity, cwe=r.cwe, fix=r.fix,
+            confidence=r.confidence, kind="code",
+            applies=sorted(r.langs), pattern=r.regex.pattern)
+    for r in code_rules.FILE_RULES:
+        add(r.rule_id, title=r.title, severity=r.severity, cwe=r.cwe, fix=r.fix,
+            confidence=r.confidence, kind="file",
+            applies=sorted(r.langs),
+            pattern=" && ".join(p.pattern for p in r.require))
+    # stateful/multi-line specials: in the catalog but not CODE_RULES/FILE_RULES
+    for rid, title, sev in code_rules.all_rules():
+        if rid not in entries:
+            add(rid, title=title, severity=sev, cwe="", fix="",
+                confidence="high", kind="code", applies=None, pattern=None)
+    for rid, title, sev in _RULE_CATALOG_STATIC:
+        add(rid, title=title, severity=sev, cwe="", fix="",
+            confidence="high", kind="static", applies=None, pattern=None)
+    cfg = load_config(Path.cwd())
+    for r in cfg.custom_rules:
+        add(r.id, title=r.title, severity=r.severity, cwe=r.cwe, fix=r.fix,
+            confidence=r.confidence, kind="custom",
+            applies=sorted(r.extensions) if r.extensions else None,
+            pattern=r.pattern)
+    return entries
+
+
+def _cmd_explain(args: argparse.Namespace) -> int:
+    entries = _explain_entries()
+    want = args.rule_id.strip()
+    rule = entries.get(want) or entries.get(want.upper()) or entries.get(want.lower())
+    if rule is None:
+        lowered = {k.lower(): v for k, v in entries.items()}
+        rule = lowered.get(want.lower())
+    if rule is None:
+        print(f"error: unknown rule {want!r} — run 'sentinel rules' for the catalog",
+              file=sys.stderr)
+        return 2
+
+    rid = next(k for k, v in entries.items() if v is rule)
+    print(f"{rid} — {rule['title']}")
+    print(f"  Severity:   {rule['severity'].name}")
+    if rule["cwe"]:
+        print(f"  CWE:        {rule['cwe']}")
+    print(f"  Confidence: {rule['confidence']}")
+    print(f"  Rule type:  {rule['kind']}")
+    if rule["applies"] is not None:
+        print(f"  Applies to: {'  '.join(rule['applies'])}")
+    elif rule["kind"] == "static":
+        print("  Applies to: whole repository (engine-level: git history / dependency manifests)")
+    if rule["pattern"]:
+        print(f"  Pattern:    {rule['pattern']}")
+    else:
+        print("  Pattern:    (logic-based check, not a single regex)")
+    if rule["fix"]:
+        print(f"  Fix:        {rule['fix']}")
     return 0
 
 
@@ -398,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "rules":
             return _cmd_rules()
+        if args.command == "explain":
+            return _cmd_explain(args)
         if args.command == "allow":
             return _cmd_allow(args)
         if args.command == "scan":
