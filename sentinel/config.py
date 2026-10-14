@@ -120,7 +120,12 @@ def _load_toml(path: Path) -> dict[str, Any] | None:
     try:
         with path.open("rb") as fh:
             return tomllib.load(fh)
-    except (OSError, ValueError):
+    except tomllib.TOMLDecodeError as exc:
+        # Distinguish "broken TOML" from "no parser / unreadable" so
+        # load_config can report the real problem instead of the misleading
+        # "no TOML parser" note (which made users think the gate was active).
+        return {"__toml_error__": str(exc)}
+    except OSError:
         return None
 
 
@@ -131,25 +136,81 @@ def _load_json(path: Path) -> dict[str, Any] | None:
         return None
 
 
+# Top-level keys `_apply` understands — anything else becomes a config note.
+_KNOWN_KEYS = {
+    "exclude", "allow_secrets", "fail_on", "history", "history_commits",
+    "deps_cves", "inline_suppressions", "baseline", "max_file_bytes",
+    "suppressions", "custom_rules",
+}
+# String spellings accepted for boolean config keys (case-insensitive).
+_BOOL_STRINGS = {"true": True, "false": False, "1": True, "0": False}
+_OFF_GATE_VALUES = {"never", "off", "none"}
+
+
+def _coerce_bool(cfg: Config, key: str, value: Any) -> bool | None:
+    """Return a real bool for ``value``, or None (with a note) if impossible."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in _BOOL_STRINGS:
+        return _BOOL_STRINGS[value.strip().lower()]
+    cfg.notes.append(f"config: {key} should be a boolean — ignored")
+    return None
+
+
+def _apply_int(cfg: Config, key: str, value: Any, target: str) -> None:
+    # bools are ints in Python — reject them so `history_commits = true`
+    # doesn't silently become 1.
+    if isinstance(value, bool) or not isinstance(value, int):
+        cfg.notes.append(f"config: {key} should be an integer — ignored")
+        return
+    setattr(cfg, target, value)
+
+
 def _apply(cfg: Config, data: dict[str, Any]) -> None:
-    if isinstance(data.get("exclude"), list):
-        cfg.excludes.extend(str(x) for x in data["exclude"])
-    if isinstance(data.get("allow_secrets"), list):
-        cfg.allow_secrets.extend(str(x) for x in data["allow_secrets"])
-    if data.get("fail_on"):
-        cfg.fail_on = str(data["fail_on"])
+    for key in data:
+        if key not in _KNOWN_KEYS:
+            cfg.notes.append(f"config: unknown key {key!r}")
+
+    if "exclude" in data:
+        if isinstance(data["exclude"], list):
+            cfg.excludes.extend(str(x) for x in data["exclude"])
+        else:
+            cfg.notes.append("config: exclude should be a list — ignored")
+    if "allow_secrets" in data:
+        if isinstance(data["allow_secrets"], list):
+            cfg.allow_secrets.extend(str(x) for x in data["allow_secrets"])
+        else:
+            cfg.notes.append("config: allow_secrets should be a list — ignored")
+
+    fail_on = data.get("fail_on")
+    if fail_on:
+        value = str(fail_on)
+        if value.lower() not in _OFF_GATE_VALUES:
+            try:
+                Severity.parse(value)
+            except ValueError:
+                cfg.notes.append(f"config: invalid fail_on={fail_on!r} — using 'high'")
+                value = "high"
+        cfg.fail_on = value
+
     if "history" in data:
-        cfg.history = bool(data["history"])
-    if isinstance(data.get("history_commits"), int):
-        cfg.history_commits = data["history_commits"]
+        coerced = _coerce_bool(cfg, "history", data["history"])
+        if coerced is not None:
+            cfg.history = coerced
+    if "history_commits" in data:
+        _apply_int(cfg, "history_commits", data["history_commits"], "history_commits")
     if "deps_cves" in data:
-        cfg.deps_cves = bool(data["deps_cves"])
+        coerced = _coerce_bool(cfg, "deps_cves", data["deps_cves"])
+        if coerced is not None:
+            cfg.deps_cves = coerced
     if "inline_suppressions" in data:
-        cfg.inline_suppressions = bool(data["inline_suppressions"])
+        coerced = _coerce_bool(cfg, "inline_suppressions", data["inline_suppressions"])
+        if coerced is not None:
+            cfg.inline_suppressions = coerced
     if data.get("baseline"):
         cfg.baseline = str(data["baseline"])
-    if isinstance(data.get("max_file_bytes"), int):
-        cfg.max_file_bytes = data["max_file_bytes"]
+    if "max_file_bytes" in data:
+        _apply_int(cfg, "max_file_bytes", data["max_file_bytes"], "max_file_bytes")
     for entry in data.get("suppressions", []) or []:
         if isinstance(entry, dict):
             cfg.suppressions.append(Suppression(
@@ -215,9 +276,12 @@ def load_config(root: Path, explicit: str | None = None) -> Config:
 
     if explicit:
         p = Path(explicit)
-        data = _load_toml(p) if p.suffix == ".toml" else _load_json(p)
+        data = _load_toml(p) if p.suffix.lower() == ".toml" else _load_json(p)
         if data is None:
             cfg.notes.append(f"config: could not read {explicit}")
+        elif "__toml_error__" in data:
+            cfg.notes.append(
+                f"config: invalid TOML in {explicit}: {data['__toml_error__']}")
         else:
             _apply(cfg, data)
             loaded = True
@@ -228,6 +292,9 @@ def load_config(root: Path, explicit: str | None = None) -> Config:
             if data is None:
                 cfg.notes.append(
                     "config: sentinel.toml found but no TOML parser (need Python 3.11+ or `pip install tomli`)")
+            elif "__toml_error__" in data:
+                cfg.notes.append(
+                    f"config: invalid TOML in sentinel.toml: {data['__toml_error__']}")
             else:
                 _apply(cfg, data)
                 loaded = True

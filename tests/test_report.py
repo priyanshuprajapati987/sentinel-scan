@@ -1,11 +1,25 @@
-"""Report renderers: console, json, markdown, html, SARIF 2.1.0."""
+"""Report renderers: console, json, markdown, html, SARIF 2.1.0,
+JUnit XML, GitLab Code Quality, HTML entity and NO_COLOR edge cases."""
 
 import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pytest
 
 from sentinel.engine import ScanResult
 from sentinel.models import Finding, Severity
-from sentinel.report import render_console, render_html, render_json, render_markdown, render_sarif
+from sentinel.report import (
+    _html,
+    render_console,
+    render_gitlab,
+    render_html,
+    render_json,
+    render_junit,
+    render_markdown,
+    render_sarif,
+    write_report,
+)
 
 
 def _finding(rule_id="SEC020", severity=Severity.HIGH, path="app.py", line=3,
@@ -134,3 +148,80 @@ class TestSarif:
 def _sarif_level(sev: Severity) -> str:
     doc = json.loads(render_sarif(_result([_finding(severity=sev)])))
     return doc["runs"][0]["results"][0]["level"]
+
+
+class TestJUnitControlChars:
+    def test_illegal_control_chars_do_not_break_xml(self):
+        f = _finding(evidence="bad \x00\x1b\x0b\x0c chars")
+        root = ET.fromstring(render_junit(_result([f])))  # must not ParseError
+        assert root.tag == "testsuites"
+        failure = root.find("testsuite/testcase/failure")
+        assert failure is not None
+        body = failure.text or ""
+        for ch in ("\x00", "\x1b", "\x0b", "\x0c"):
+            assert ch not in body
+        assert "bad" in body and "chars" in body  # content kept
+
+    def test_legal_whitespace_preserved(self):
+        f = _finding(evidence="line1\nline2\ttab\r")
+        root = ET.fromstring(render_junit(_result([f])))
+        body = root.find("testsuite/testcase/failure").text or ""
+        assert "line1\nline2\ttab" in body
+
+    def test_control_chars_in_path_and_title_stripped(self):
+        f = _finding(path="we\x00ird.py", title="ti\x1btle")
+        root = ET.fromstring(render_junit(_result([f])))
+        case = root.find("testsuite/testcase")
+        assert "\x00" not in (case.get("name") or "")
+
+
+class TestGitlabSeverity:
+    def test_all_severities_in_gitlab_enum(self):
+        sev_findings = [
+            _finding(severity=sev, path=f"p{i}.py", line=i + 1)
+            for i, sev in enumerate(
+                [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM,
+                 Severity.LOW, Severity.INFO])
+        ]
+        out = json.loads(render_gitlab(_result(sev_findings)))
+        allowed = {"info", "minor", "major", "critical", "blocker"}
+        assert len(out) == 5
+        assert all(i["severity"] in allowed for i in out)
+        assert [i["severity"] for i in out] == [
+            "blocker", "major", "minor", "info", "info"]
+
+
+class TestHtmlEntities:
+    def test_escapes_apostrophe(self):
+        assert _html("it's") == "it&#39;s"
+        assert "'" not in _html("don't <b>'</b>")
+
+    def test_escapes_in_rendered_html(self):
+        html = render_html(_result([_finding(title="it's bad")]))
+        assert "it&#39;s bad" in html
+        assert "it's bad" not in html
+
+
+class TestMarkdownPathPipe:
+    def test_pipe_in_path_escaped_single_row(self):
+        f = _finding(path="dir|evil.py")
+        md = render_markdown(_result([f]))
+        assert "dir\\|evil.py" in md
+        rows = [ln for ln in md.splitlines()
+                if ln.startswith("|") and "SEC020" in ln]
+        assert len(rows) == 1
+        assert rows[0].count("`") == 4  # path cell intact, not split by the pipe
+
+
+class TestNoColorPresence:
+    def test_empty_no_color_disables_color(self, monkeypatch):
+        monkeypatch.setenv("NO_COLOR", "")
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
+        out = render_console(_result())
+        assert "\033[" not in out
+
+
+class TestWriteReportDashOutput:
+    def test_dash_output_raises(self):
+        with pytest.raises(ValueError, match="not supported"):
+            write_report("json", _result(), "-")

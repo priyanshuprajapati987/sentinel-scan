@@ -13,7 +13,7 @@ def score(findings: list[Finding]) -> tuple[int, str]:
     * 100 minus weighted deductions (critical 25 / high 10 / medium 3 / low 1).
     * Score clamped to 0.
     * Grade bands: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 50, F < 50.
-    * Any CRITICAL caps the grade at D — one leaked prod key is never an "A".
+    * Any CRITICAL caps A/B grades at D — one leaked prod key is never an A or B.
     """
     deductions = sum(SEVERITY_WEIGHT[f.severity] for f in findings)
     s = max(0, 100 - deductions)

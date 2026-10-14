@@ -22,10 +22,12 @@ class Severity(IntEnum):
 
     @classmethod
     def parse(cls, value: str | int) -> "Severity":
+        if isinstance(value, bool):
+            raise ValueError(f"bool is not a severity: {value!r}")
         if isinstance(value, int):
             return cls(value)
         try:
-            return cls[str(value).upper()]
+            return cls[str(value).strip().upper()]
         except KeyError as exc:
             raise ValueError(f"unknown severity: {value!r}") from exc
 
@@ -77,10 +79,11 @@ class Finding:
         Same rule hitting the same evidence in the same file is the "same"
         finding even after surrounding lines are inserted — so
         ``sentinel diff`` reports it as unchanged, not as new+removed.
-        Evidence (or the title for evidence-less file-level findings) keeps
-        the pair unique; the line number is deliberately excluded.
+        Evidence keeps the pair unique; the line number is deliberately
+        excluded. Evidence-less findings anchor on "" (rule_id + path
+        only) — NOT the title, so a title reword never changes the id.
         """
-        anchor = self.evidence.strip()[:120] if self.evidence.strip() else self.title
+        anchor = self.evidence.strip()[:120] if self.evidence.strip() else ""
         return (self.rule_id, self.path.replace("\\", "/"), anchor)
 
     def stable_fingerprint(self) -> str:

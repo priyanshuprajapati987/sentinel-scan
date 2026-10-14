@@ -6,6 +6,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-13
+
+Full function-by-function audit of all 14 modules (95 functions,
+~97 findings across 4 independent reviews) - fail-open paths closed,
+scanner precision fixes, shared gates, config/report hardening.
+
+### Fixed
+- **Fail-open paths (P0)**: staged-diff unicode decode no longer aborts the
+  scan; malformed ignore-glob / baseline-expiry / allow entries degrade to
+  visible notes instead of silently allowing everything; baseline update
+  clears the old file instead of leaving stale suppressions.
+- **Honest CVE coverage**: pip-audit's modern `{"dependencies": [...]}`
+  JSON shape was being read as malformed - every real CVE was dropped as
+  "clean". Both pip-audit shapes now parse; unparseable tool output surfaces
+  as a "coverage unknown" note, never as "0 vulnerabilities". npm severity
+  labels (moderate/info/unknown) map correctly instead of collapsing to HIGH.
+- **pip-audit project mode**: the pyproject fallback now runs
+  `pip-audit .` (the project's DECLARED dependencies) instead of a bare
+  ambient-environment audit - results are deterministic across machines/CI
+  and findings are attributed to the repo, not to whatever happens to be
+  installed locally.
+- **Git checks fail closed**: `_git` failures now emit a visible GIT-SKIP
+  "check skipped, not clean" finding (precedent: DEPS-SKIP) instead of
+  returning empty = clean; `.env.*` tracked-file family fixed; history-diff
+  parsing no longer mis-attributes hunk lines to the wrong file path.
+- **Secrets (SEC014/015/016/019)**: keyword prefix/suffix matching
+  (`DB_PASSWORD`, `MY_APP_SECRET_KEY`), unquoted `.env` values, value-aware
+  vendor suppression (no more same-line double-report), falsy `allow` entries
+  no longer suppress everything, stump redaction never reveals >60% of a
+  secret, placeholder gate is anchored (weak-but-real secrets like
+  `testsecret999999` are no longer hidden by a "test" prefix match).
+- **Shared post-match gates**: `scan_text` and git-history SEC055 now run
+  the same `extract_value` gates - docs/type-annotation shapes
+  (`list[SecretRule]`, `password = get_password()`, `"<literal>"`) can no
+  longer surface as CRITICAL "secret in git history" findings while the
+  working-tree scan calls them clean.
+- **Scanner precision**: multi-line statements joined into logical lines
+  before rule matching (YAML `run:` blocks, multi-line calls) with a
+  ReDoS-safe probe cap; SEC072 credential values redacted from evidence;
+  rule-precision fixes across the code rules (see tests/test_code_fixes.py).
+- **CLI / config / report**: UTF-8 stdout reconfigure on Windows (cp1252
+  crash), `allow` and `--config` never destroy unknown keys on JSON->TOML
+  rewrite, invalid TOML reports a config error instead of a traceback,
+  `-f all` with `-o` validated (no accidental overwrite), JUnit control-char
+  strip + GitLab severity enum mapping, HTML report apostrophe escaping,
+  NO_COLOR honouring.
+- **Diff / score / models**: multiplicity-aware chunk mapping (repeated
+  edits of the same chunk no longer collapse), severity parse guards
+  (whitespace/bool inputs), evidence-less findings get stable keys.
+
+### Tests
+- 429 -> **722 passing** (audit-fix regression suites: engine, diff parser,
+  config, code fixes, secret fixes + shared-gate and pip-audit project-mode
+  guards), ruff clean, self-scan **100/100 grade A, 0 findings**.
+
 ## [0.7.0] - 2026-10-13
 
 ### Added
@@ -213,7 +268,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--staged` pre-commit mode, GitHub composite action, workflow_dispatch CI
 - 178 tests, ruff clean, self-scan 100/A
 
-[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/priyanshuprajapati987/sentinel-scan/compare/v0.5.0...v0.6.0

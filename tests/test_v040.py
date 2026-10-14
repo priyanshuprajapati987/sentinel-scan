@@ -39,7 +39,7 @@ class TestGitlabFormat:
         assert issue["type"] == "issue"
         assert issue["check_id"] == "SEC020"
         assert issue["description"] == "eval on input"
-        assert issue["severity"] == "high"
+        assert issue["severity"] == "major"
         assert issue["confidence"] == "high"
         assert issue["location"]["path"] == "app.py"
         assert issue["location"]["lines"]["begin"] == 3
@@ -51,7 +51,7 @@ class TestGitlabFormat:
             _finding(severity=Severity.LOW),
             _finding(severity=Severity.INFO),
         ])))
-        assert [i["severity"] for i in out] == ["critical", "medium", "low", "info"]
+        assert [i["severity"] for i in out] == ["blocker", "minor", "info", "info"]
 
     def test_fingerprint_line_invariant(self):
         a = json.loads(render_gitlab(_result([_finding(line=3)])))[0]

@@ -224,6 +224,15 @@ def _cmd_allow(args: argparse.Namespace) -> int:
     if not root.exists():
         print(f"error: path does not exist: {root}", file=sys.stderr)
         return 2
+    if not root.is_dir():
+        print(f"error: expected a directory: {root}", file=sys.stderr)
+        return 2
+    if args.config is not None and Path(args.config).suffix.lower() != ".toml":
+        # appending a TOML [[suppressions]] block into JSON (or anything
+        # non-TOML) would destroy the file — refuse instead.
+        print("error: `allow` writes TOML [[suppressions]] blocks — "
+              f"--config must be a .toml file, got: {args.config}", file=sys.stderr)
+        return 2
     prefix = args.fingerprint.lower().strip()
     if len(prefix) < 6:
         print("error: fingerprint must be at least 6 characters "
@@ -257,11 +266,14 @@ def _cmd_allow(args: argparse.Namespace) -> int:
             return 0
 
     reason = args.reason or f"accepted via sentinel allow ({finding.fingerprint()})"
+    # ensure_ascii=False: json.dumps default would emit \ud83d\ude00 surrogate
+    # escapes into the TOML file, which TOML cannot parse — the whole config
+    # would fail and silently revert to defaults.
     block = (
         "\n[[suppressions]]\n"
-        f"rule_id = {json.dumps(finding.rule_id)}\n"
-        f"path = {json.dumps(finding.path.replace(chr(92), '/'))}\n"
-        f"reason = {json.dumps(reason)}\n"
+        f"rule_id = {json.dumps(finding.rule_id, ensure_ascii=False)}\n"
+        f"path = {json.dumps(finding.path.replace(chr(92), '/'), ensure_ascii=False)}\n"
+        f"reason = {json.dumps(reason, ensure_ascii=False)}\n"
     )
     cfg_path = Path(args.config) if args.config else root / "sentinel.toml"
     created = not cfg_path.exists()
@@ -287,10 +299,26 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     if not root.exists():
         print(f"error: path does not exist: {root}", file=sys.stderr)
         return 2
+    if not root.is_dir():
+        print(f"error: expected a directory: {root}", file=sys.stderr)
+        return 2
 
     if args.changed_since is not None and args.staged:
         print("error: --changed-since and --staged are mutually exclusive", file=sys.stderr)
         return 2
+
+    if args.output == "-":
+        print("error: -o '-' is not supported (it would create a file named '-'); "
+              "pass a real file path or omit -o", file=sys.stderr)
+        return 2
+    if args.format == "all" and args.output is not None:
+        out = args.output
+        if not (out.endswith(("/", "\\")) or Path(out).is_dir()):
+            # a plain file path here would be overwritten by each format in
+            # turn — silently last-wins.
+            print("error: use --output with a directory (trailing slash) "
+                  "for -f all", file=sys.stderr)
+            return 2
 
     cfg = load_config(root, args.config)
     fail_on = args.fail_on or cfg.fail_on
@@ -326,7 +354,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         run_git=not args.no_git,
         run_deps=not args.no_deps,
         history=history,
-        baseline=baseline_path,
+        # when rewriting the baseline, don't pre-filter by the OLD baseline —
+        # otherwise a second --update-baseline would wipe every entry.
+        baseline=None if args.update_baseline else baseline_path,
     )
 
     if args.update_baseline:
@@ -358,9 +388,14 @@ def _changed_files(root: Path, ref: str) -> list[str] | None:
     plus uncommitted and untracked changes. None = git error (bad ref)."""
     sets: list[list[str]] = []
     for args in (
-        ("diff", "--name-only", "--diff-filter=ACMR", f"{ref}...HEAD"),
-        ("diff", "--name-only", "--diff-filter=ACMR", "HEAD"),
-        ("ls-files", "--others", "--exclude-standard"),
+        # core.quotepath=false keeps unicode filenames literal (no "..." quoting);
+        # --relative keeps paths relative to cwd so a subdir --changed-since
+        # under-scans (git diff would otherwise emit repo-root-relative paths).
+        ("-c", "core.quotepath=false", "diff", "--name-only", "--relative",
+         "--diff-filter=ACMR", f"{ref}...HEAD"),
+        ("-c", "core.quotepath=false", "diff", "--name-only", "--relative",
+         "--diff-filter=ACMR", "HEAD"),
+        ("-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard"),
     ):
         proc = _git(root, *args)
         if proc.returncode != 0:
@@ -467,6 +502,15 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows cp1252 stdout crashes on "✓" etc. (UnicodeEncodeError -> exit 2
+    # on the cleanest path). Force UTF-8 with backslashreplace; hasattr skips
+    # StringIO/capture streams that don't support reconfigure.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+            except Exception:  # pragma: no cover - closed/odd stream
+                pass
     parser = _build_parser()
     args = parser.parse_args(argv)
 

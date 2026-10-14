@@ -1,9 +1,13 @@
 """Code vulnerability rules (lightweight SAST).
 
 Line-oriented regular expressions per language — deliberately conservative:
-every rule fires on a single unambiguous line so the report can point at an
-exact ``path:line``. File-level rules (workflow context) are handled
-separately in ``FILE_RULES``.
+every rule fires on a single unambiguous (logical) line so the report can
+point at an exact ``path:line``. Bracket/comma continuations are collapsed
+into logical lines first (see ``_logical_lines``) so multi-line calls are
+matched (and their safe-kwarg negations seen) while findings still report the
+FIRST physical line. Each regex probe is capped at ``_PROBE_MAX`` characters
+so pathological 100KB+ lines cannot hang the scan (ReDoS guard). File-level
+rules (workflow context) are handled separately in ``FILE_RULES``.
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..models import Finding, Severity
+from .secrets import redact
 
 PY = frozenset({".py"})
 JS = frozenset({".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".vue", ".svelte"})
@@ -99,7 +104,10 @@ CODE_RULES: list[CodeRule] = [
        PY | YAML | CONFIG | frozenset({".env"}),
        confidence="medium"),
     _c("SEC029", "CORS wildcard origin",
-       r"CORS\s*\([^)]{0,300}\*|Access-Control-Allow-Origin['\"]?\s*[,:)]\s*['\"]?\*",
+       # '*' must sit in an origin VALUE position — a route glob like
+       # resources={r"/api/*": ...} is not a wildcard origin.
+       r"origins?\s*['\"]?\s*[:=]\s*['\"]\*"
+       r"|Access-Control-Allow-Origin['\"]?\s*[,:)]\s*['\"]?\*",
        Severity.HIGH, "CWE-942",
        "Allowlist trusted origins instead of '*'.",
        PY | JS | YAML | frozenset({".cs", ".go", ".java", ".rb"}),
@@ -129,8 +137,9 @@ CODE_RULES: list[CodeRule] = [
        JS),
     _c("SEC034", "Remote script piped to shell",
        r"(?:curl|wget)[^\n|]{0,200}\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b", Severity.HIGH, "CWE-494",
-       "Download first, inspect checksum, then execute — never pipe remote bytes to a shell.",
-       SHELL | frozenset({".md", ".yml", ".yaml"}) | DOCKER),
+        "Download first, inspect checksum, then execute — never pipe remote bytes to a shell.",
+        SHELL | frozenset({".md", ".yml", ".yaml"}) | DOCKER,
+        negate=re.compile(r"^\s*#")),
     _c("SEC035", "XXE-prone XML parsing",
        r"(?:xml\.etree\.ElementTree|ET)\.(?:fromstring|parse)\s*\(|expat\.(?:ParserCreate|Parse)\s*\(",
        Severity.MEDIUM, "CWE-611",
@@ -144,13 +153,17 @@ CODE_RULES: list[CodeRule] = [
        "names are raceable (symlink attacks).",
        PY | NATIVE),
     _c("SEC037", "Dynamic import of non-literal module",
-       r"(?<![\w.])(__import__\s*\(\s*(?!['\"])|importlib\.import_module\s*\(\s*(?!['\"]))",
+       # (?!\s*['"]) form: the lookahead consumes leading whitespace itself, so
+       # \s* can't backtrack to a zero-width match that then sees a space.
+       r"(?<![\w.])(__import__\s*\((?!\s*['\"])|importlib\.import_module\s*\((?!\s*['\"]))",
        Severity.MEDIUM, "CWE-470",
        "Import from an allowlisted literal — dynamic module names enable code loading.",
        PY,
        confidence="medium"),
     _c("SEC040", "World-writable / full-permission file mode",
-       r"chmod\s+(?:-R\s+)?777|chmod\s+a\+rwx|icacls\s+\S+\s+/grant\s+\S+:F\b|0o777\b",
+       # [0-7]{0,3}777 covers chmod 0777 / 1777 / -R 0777; (?![0-9]) stops
+       # "chmod 7770"-style modes from matching the leading 777.
+       r"chmod\s+(?:-R\s+)?[0-7]{0,3}777(?![0-9])|chmod\s+a\+rwx|icacls\s+\S+\s+/grant\s+\S+:F\b|0o777\b",
        Severity.MEDIUM, "CWE-732",
        "Grant the minimum required permission (e.g. 750/640).",
        SHELL | YAML | PY,
@@ -174,10 +187,11 @@ CODE_RULES: list[CodeRule] = [
        confidence="medium"),
     _c("SEC045", "Unsafe archive extraction (extractall)",
        r"\.extractall\s*\(",
-       Severity.MEDIUM, "CWE-22",
-       "Filter members (tarfile data_filter / safe extraction) to block path traversal.",
-       PY,
-       confidence="medium"),
+        Severity.MEDIUM, "CWE-22",
+        "Filter members (tarfile data_filter / safe extraction) to block path traversal.",
+        PY,
+        confidence="medium",
+        negate=re.compile(r"\bfilter\s*=", re.IGNORECASE)),
     _c("SEC046", "HTTP call without a timeout",
        r"(?<![\w.])(?:requests|httpx)\.(?:get|post|put|delete|head|patch|request)\s*\("
        r"(?!.*\btimeout\s*=)",
@@ -245,7 +259,8 @@ CODE_RULES: list[CodeRule] = [
        JAVA,
        confidence="medium"),
     _c("SEC065", "Weak message digest (MD5 / SHA-1) in Java",
-       r"MessageDigest\.getInstance\s*\(\s*\"(?:MD5|SHA-1)\"\s*\)",
+       # [^)]* after the quote allows trailing args: getInstance("MD5", provider).
+       r"MessageDigest\.getInstance\s*\(\s*\"(?:MD5|SHA-1)\"[^)]*\)",
        Severity.MEDIUM, "CWE-327",
        "Use SHA-256+ (or HMAC) — MD5/SHA-1 are broken for security purposes.",
        JAVA,
@@ -313,7 +328,9 @@ CODE_RULES: list[CodeRule] = [
        PHP,
        confidence="medium"),
     _c("SEC078", "Shell command execution (PHP)",
-       r"(?<![\w.])(?:system|exec|passthru|shell_exec|popen|proc_open)\s*\(",
+       # (?<!->) keeps $pdo->exec($sql) (a PDO method) from counting while
+       # bare exec(...) / system(...) still fire.
+       r"(?<!->)(?<![\w.])(?:system|exec|passthru|shell_exec|popen|proc_open)\s*\(",
        Severity.HIGH, "CWE-78",
        "Avoid shelling out; validate/allowlist inputs and use escapeshellarg per argument.",
        PHP,
@@ -324,7 +341,9 @@ CODE_RULES: list[CodeRule] = [
        "mysql_* was removed in PHP 7 — use mysqli/PDO with parameterized queries.",
        PHP),
     _c("SEC080", "preg_replace() with /e code-execution modifier (PHP)",
-       r"preg_replace\s*\(\s*[\"'][^\"'\n]*e['\"]",
+       # Two delimiters required (/pattern/e) — a pattern string merely ending
+       # in 'e' ("/abcde") is not the /e modifier.
+       r"preg_replace\s*\(\s*[\"'][^\"'\n]*/[^\"'\n]*/[a-zA-Z]*e[a-zA-Z]*['\"]",
        Severity.HIGH, "CWE-94",
        "Use preg_replace_callback with a real callback — the /e modifier evals the replacement.",
        PHP),
@@ -371,12 +390,19 @@ CODE_RULES: list[CodeRule] = [
        "Pin an explicit immutable version (e.g. :3.19) or a digest.",
        DOCKER),
     _c("SEC072", "Secret baked into Dockerfile ENV/ARG",
-       r"^\s*(?:ENV|ARG)\s+\w*(?:KEY|TOKEN|SECRET|PASSW(?:OR)?D|PWD|CREDENTIALS?)\w*\s*=",
-       Severity.HIGH, "CWE-798",
-       "Pass secrets at run time (orchestrator secrets / docker run -e), "
-       "never bake them into the image.",
-       DOCKER,
-       confidence="medium"),
+       # Whole-token credential names only: the keyword must be a delimited
+       # token of the variable (API_KEY, GITHUB_TOKEN, DB_PASSWORD) so
+       # KEYBOARD_LAYOUT / SECRETS_DIR / TOKENIZER_FILE never match; PWD only
+       # counts with a prefix (MYSQL_PWD), never bare `ENV PWD=` (workdir).
+       r"^\s*(?:ENV|ARG)\s+"
+       r"(?:(?:[A-Za-z0-9]+_)+(?:KEY|TOKEN|SECRET|PASSW(?:OR)?D|PWD|CREDENTIALS?)"
+       r"|(?:KEY|TOKEN|SECRET|PASSW(?:OR)?D|CREDENTIALS?)(?:_[A-Za-z0-9]+)*)"
+       r"\s*=",
+        Severity.HIGH, "CWE-798",
+        "Pass secrets at run time (orchestrator secrets / docker run -e), "
+        "never bake them into the image.",
+        DOCKER,
+        confidence="medium"),
     _c("SEC073", "Container escape vector (privileged / docker.sock mount)",
        r"privileged\s*:\s*true|docker\.sock", Severity.HIGH, "CWE-250",
        "Drop privileged mode; never mount the docker socket into a container.",
@@ -415,7 +441,9 @@ FILE_RULES: list[FileRule] = [
         Severity.CRITICAL,
         "CWE-829",
         "Avoid pull_request_target for untrusted PRs; if needed never checkout the PR head with write permissions.",
-        (re.compile(r"pull_request_target", re.IGNORECASE),
+        # Key form only: a comment mentioning pull_request_target plus any
+        # checkout must not escalate to CRITICAL.
+        (re.compile(r"^\s*pull_request_target\s*:", re.IGNORECASE | re.MULTILINE),
          re.compile(r"uses:\s*\S*actions/checkout", re.IGNORECASE)),
         YAML,
         message="Workflow combines pull_request_target + actions/checkout — a malicious PR can run code with secrets.",
@@ -449,8 +477,10 @@ def _ext_of(path: str) -> str:
 # `run:` step is shell script injection (GitHub's own hardening guide). `if:`
 # and `env:` contexts are expression/data positions — not flagged.
 _UNTRUSTED_CTX = re.compile(r"\$\{\{\s*(?:github\.event\.[A-Za-z0-9_.]+|github\.head_ref)\b")
-_RUN_BLOCK_RE = re.compile(r"^\s*run\s*:\s*[|>][-+]?\s*$")
-_RUN_INLINE_RE = re.compile(r"\brun\s*:")
+# `run:` must be the YAML KEY (optional `- ` list dash) — not a `run:` mention
+# inside a description/string value.
+_RUN_BLOCK_RE = re.compile(r"^\s*-?\s*run\s*:\s*[|>][-+]?\s*$")
+_RUN_INLINE_RE = re.compile(r"^\s*-?\s*run\s*:")
 
 
 def _scan_actions(path: str, text: str) -> list[Finding]:
@@ -460,6 +490,10 @@ def _scan_actions(path: str, text: str) -> list[Finding]:
     run_indent = -1
     for lineno, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
+        if stripped.startswith("#"):
+            # YAML/shell comment — never a run step, and a commented-out
+            # expression cannot inject (the shell never executes it).
+            continue
         indent = len(line) - len(line.lstrip())
         if in_run_block:
             if stripped and indent <= run_indent:
@@ -518,6 +552,8 @@ def _scan_dockerfile(path: str, text: str) -> list[Finding]:
         image, stage = m.group(1), m.group(2)
         if stage:
             stages.add(stage.lower())
+        if image.lower() == "scratch":
+            continue  # empty scratch image — has no tag/digest by design
         if "$" in image:  # ARG-templated tag — cannot evaluate statically
             continue
         if image.lower() in stages:
@@ -541,29 +577,93 @@ def _scan_dockerfile(path: str, text: str) -> list[Finding]:
     return findings
 
 
+# Cap on the text any single regex probe may see (ReDoS / pathological-line
+# guard — measured 3-69s hangs on 120-210KB lines before this).
+_PROBE_MAX = 10_000
+
+
+def _logical_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Collapse bracket/comma continuations into logical lines.
+
+    Returns ``(first_physical_line, text)`` pairs so findings still point at
+    the line where the construct STARTS. The joined text stays raw — trailing
+    comments are deliberately NOT stripped (``#`` inside C# paths / shell
+    strings / regexes would be mangled). Each emitted buffer is capped at
+    ``_PROBE_MAX`` characters, so a pathological line (or an unclosed-bracket
+    run) can never build an unbounded buffer.
+    """
+    out: list[tuple[int, str]] = []
+    buf = ""
+    start = 0
+    for i, ln in enumerate(lines):
+        if not buf:
+            start = i
+        piece = ln.strip()
+        buf += (" " if buf else "") + piece
+        if len(buf) >= _PROBE_MAX:  # hard cap — flush, keep going
+            out.append((start + 1, buf[:_PROBE_MAX]))
+            buf = ""
+            continue
+        if buf.count("(") > buf.count(")") or piece.endswith((",", "(")):
+            if i < len(lines) - 1:
+                continue
+        out.append((start + 1, buf))
+        buf = ""
+    if buf:
+        out.append((start + 1, buf))
+    return out
+
+
+# SEC072 evidence/message carry a credential — mask the value half before the
+# Finding is built so raw secrets never reach reports/SARIF.
+_DOCKER_ASSIGN_RE = re.compile(r"^(\s*(?:ENV|ARG)\s+[A-Za-z0-9_]+\s*=\s*)(.*)$")
+_REDACT_RULES = frozenset({"SEC072"})
+
+
+def _redact_credential(text: str) -> str:
+    """Mask the value of an ``ENV|ARG name=value`` line (keeps the name)."""
+    m = _DOCKER_ASSIGN_RE.match(text)
+    if not m:
+        return redact(text)  # unexpected shape — over-redact, never leak
+    prefix, value = m.group(1), m.group(2).strip()
+    if not value:
+        return text
+    quote = ""
+    if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+        quote, inner = value[0], value[1:-1]
+    else:
+        inner = value
+    if not inner:
+        return text
+    return f"{prefix}{quote}{redact(inner)}{quote}"
+
+
 def scan_text(path: str, text: str) -> list[Finding]:
     """Run line rules + file rules over one file."""
     findings: list[Finding] = []
     ext = _ext_of(path)
-    lines = text.splitlines()
+    logical = _logical_lines(text.splitlines())
 
     for rule in CODE_RULES:
         if ext not in rule.langs:
             continue
-        for lineno, line in enumerate(lines, 1):
-            if not rule.regex.search(line):
+        redact_hit = rule.rule_id in _REDACT_RULES
+        for lineno, buf in logical:
+            probe = buf[:_PROBE_MAX]  # ReDoS/line-length cap: regex only sees this
+            if not rule.regex.search(probe):
                 continue
-            if rule.negate is not None and rule.negate.search(line):
+            if rule.negate is not None and rule.negate.search(probe):
                 continue
+            shown = _redact_credential(probe) if redact_hit else probe
             findings.append(
                 Finding(
                     rule_id=rule.rule_id,
                     title=rule.title,
                     severity=rule.severity,
-                    message=rule.message or f"{rule.title}: {line.strip()[:120]}",
+                    message=rule.message or f"{rule.title}: {shown.strip()[:120]}",
                     path=path,
                     line=lineno,
-                    evidence=line.strip()[:160],
+                    evidence=shown.strip()[:160],
                     fix=rule.fix,
                     cwe=rule.cwe,
                     confidence=rule.confidence,

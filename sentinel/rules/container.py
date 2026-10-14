@@ -24,7 +24,8 @@ def scan_repo(root: Path,
         dockerfiles = [
             p for p in root.rglob("*")
             if p.is_file()
-            and p.name.lower().startswith("dockerfile")
+            # "dockerfile" or "dockerfile.<variant>" only — NOT dockerfiles.md/docs
+            and (p.name.lower() == "dockerfile" or p.name.lower().startswith("dockerfile."))
             and ".git" not in p.parts
             and not (exclude and exclude(p.relative_to(root).as_posix()))
         ]

@@ -43,3 +43,18 @@ reason = "rule definition quotes its own verify=False pattern"
 rule_id = "SEC013"
 path = "sentinel/rules/gitcheck.py"
 reason = "remote-credential evidence format string matches its own URL pattern"
+
+[[suppressions]]
+rule_id = "SEC040"
+path = "sentinel/rules/code.py"
+reason = "rule definition quotes its own 0o777/chmod pattern"
+
+[[suppressions]]
+rule_id = "SEC047"
+path = "README.md"
+reason = "rules table documents the curl -k/--insecure detection pattern itself"
+
+[[suppressions]]
+rule_id = "SEC047"
+path = "CHANGELOG.md"
+reason = "release notes quote the curl -k/--insecure rule description"

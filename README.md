@@ -4,7 +4,7 @@
 [![CI](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshuprajapati987/sentinel-scan/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-429%20passing-brightgreen)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-722%20passing-brightgreen)](CHANGELOG.md)
 
 **One command that sweeps a repository's entire attack surface** — secrets,
 code vulnerabilities, dependency CVEs, and git hygiene — then hands you a
@@ -397,7 +397,7 @@ sentinel scan . --staged --no-history --no-deps --fail-on high -q
 
 ```bash
 ruff check .          # lint
-python -m pytest      # 429 tests
+python -m pytest      # 722 tests
 sentinel scan .       # self-scan (tests/ excluded via sentinel.toml)
 ```
 

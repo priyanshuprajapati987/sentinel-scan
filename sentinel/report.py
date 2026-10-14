@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -27,10 +28,13 @@ _BOLD = "\033[1m"
 
 _COLOR_ENABLED = False
 
+# XML 1.0 forbids these control chars even when escaped; \t \n \r stay legal.
+_XML_INVALID = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
 
 def _enable_color() -> None:
     global _COLOR_ENABLED
-    if os.environ.get("NO_COLOR"):
+    if "NO_COLOR" in os.environ:  # presence-based per https://no-color.org
         _COLOR_ENABLED = False
         return
     if os.environ.get("FORCE_COLOR"):
@@ -143,7 +147,8 @@ def render_markdown(result) -> str:
 
     lines += ["| Sev | Rule | Location | Issue | Fix |", "|---|---|---|---|---|"]
     for f in result.findings:
-        loc = f"`{f.path}" + (f":{f.line}`" if f.line else "`")
+        path = f.path.replace("|", "\\|")
+        loc = f"`{path}" + (f":{f.line}`" if f.line else "`")
         title = f.title.replace("|", "\\|")
         fix = (f.fix or "").replace("|", "\\|")
         lines.append(f"| {f.severity.name} | `{f.rule_id}` | {loc} | {title} | {fix} |")
@@ -205,7 +210,7 @@ def render_html(result) -> str:
 
 def _html(text: str) -> str:
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;"))
+            .replace('"', "&quot;").replace("'", "&#39;"))
 
 
 # SARIF rule metadata is built from the findings themselves so unknown rules
@@ -302,9 +307,10 @@ def render_github(result) -> str:
 
 # --- GitLab Code Quality report ----------------------------------------------
 # https://docs.gitlab.com/ci/testing/code_quality/#code-quality-report-artifact
+# GitLab's documented severity enum: info, minor, major, critical, blocker.
 _GITLAB_SEVERITY = {
-    Severity.CRITICAL: "critical", Severity.HIGH: "high", Severity.MEDIUM: "medium",
-    Severity.LOW: "low", Severity.INFO: "info",
+    Severity.CRITICAL: "blocker", Severity.HIGH: "major", Severity.MEDIUM: "minor",
+    Severity.LOW: "info", Severity.INFO: "info",
 }
 
 
@@ -341,7 +347,8 @@ def render_junit(result) -> str:
     from xml.sax.saxutils import escape
 
     def attr(text: str) -> str:
-        return escape(text, {'"': "&quot;", "<": "&lt;", ">": "&gt;"})
+        return escape(_XML_INVALID.sub("", text),
+                      {'"': "&quot;", "<": "&lt;", ">": "&gt;"})
 
     groups: dict[str, list[Finding]] = defaultdict(list)
     for f in result.findings:
@@ -358,7 +365,8 @@ def render_junit(result) -> str:
                 body = f"{body}\nfix: {f.fix}" if body else f"fix: {f.fix}"
             cases.append(
                 f'    <testcase name="{attr(loc)}" classname="sentinel.{attr(rid)}">\n'
-                f'      <failure message="{attr(msg)}">{escape(body[:800])}</failure>\n'
+                f'      <failure message="{attr(msg)}">'
+                f'{escape(_XML_INVALID.sub("", body)[:800])}</failure>\n'
                 f'    </testcase>'
             )
         suites.append(
@@ -393,6 +401,8 @@ def write_report(fmt: str, result, output: str | None, quiet: bool = False) -> N
 
     ``quiet`` suppresses only the human status chatter — files still get written.
     """
+    if str(output) == "-":
+        raise ValueError("--output '-' not supported; use a file path or omit for stdout")
     text = RENDERERS[fmt](result)
     if not output or fmt == "console":
         if not quiet:
