@@ -1,4 +1,4 @@
-﻿# CI — push/PR/manual trigger. Public repo = free Actions minutes.
+# CI — push/PR/manual trigger. Public repo = free Actions minutes.
 # Keep timeout-minutes on every job. NOTE: always quote step names that
 # contain ':' (YAML mapping crash = 0-jobs instant fail).
 name: ci
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install ruff
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install -e .
@@ -42,7 +42,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - run: pip install -e .
